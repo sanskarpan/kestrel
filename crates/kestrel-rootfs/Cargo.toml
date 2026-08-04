@@ -1,0 +1,18 @@
+[package]
+name = "kestrel-rootfs"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+nix = { workspace = true, features = ["fs", "mount", "process", "sched"] }
+libc.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sha2 = "0.10"
+xattr = "1"
+
+[dev-dependencies]
+kestrel-ns = { path = "../kestrel-ns" }
+kestrel-image = { path = "../kestrel-image" }
+tempfile = "3"

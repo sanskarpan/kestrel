@@ -1,0 +1,17 @@
+[package]
+name = "kestrel-image"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+nix = { workspace = true, features = ["fs"] }
+libc.workspace = true
+tar = "0.4.45"
+xattr = "1"
+
+[dev-dependencies]
+tempfile = "3"
+kestrel-ns = { path = "../kestrel-ns" }

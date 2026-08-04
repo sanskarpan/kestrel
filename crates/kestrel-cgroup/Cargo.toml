@@ -1,0 +1,15 @@
+[package]
+name = "kestrel-cgroup"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+nix = { workspace = true, features = ["poll", "fs", "process", "signal"] }
+libc.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+kestrel-oci = { path = "../kestrel-oci" }
+
+[dev-dependencies]
+kestrel-ns = { path = "../kestrel-ns" }

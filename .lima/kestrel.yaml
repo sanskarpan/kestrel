@@ -1,0 +1,65 @@
+# .lima/kestrel.yaml
+vmType: vz
+os: Linux
+arch: aarch64
+images:
+  # Pre-downloaded locally (see ~/.cache/kestrel-lima/) because the direct
+  # cloud-images.ubuntu.com download stalled mid-transfer over this network;
+  # curl's --retry/-C resume handled it, Lima's own downloader did not. If
+  # this cache file is missing, re-fetch with:
+  #   curl -f -L --retry 8 --retry-delay 3 --retry-all-errors -C - \
+  #     -o ~/.cache/kestrel-lima/ubuntu-24.04-server-cloudimg-arm64.img \
+  #     https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img
+  - location: "~/.cache/kestrel-lima/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: aarch64
+
+cpus: 4
+memory: "8GiB"
+disk: "40GiB"
+
+mounts:
+  - location: "~/dev/Research/Projects/Container-Runtime"
+    mountPoint: "{{.Home}}/Container-Runtime"
+    writable: true
+
+portForwards:
+  - guestPort: 7777
+    hostIP: "127.0.0.1"
+  - guestPort: 5173
+    hostIP: "127.0.0.1"
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      apt-get update
+      apt-get install -y build-essential pkg-config libseccomp-dev \
+          iproute2 iptables curl unzip
+
+      # Ubuntu 24.04 gates unprivileged CLONE_NEWUSER behind AppArmor as an
+      # extra hardening layer on top of kernel.unprivileged_userns_clone
+      # (which is already 1 by default). kestrel-ns's whole design assumes
+      # an unprivileged process can create user namespaces (that's the
+      # entire point of the three-stage dance) — this VM is a disposable
+      # dev sandbox, not a hardened multi-tenant host, so disable it here,
+      # persistently, rather than re-discovering this via a confusing EPERM
+      # every time the VM reboots.
+      cat > /etc/sysctl.d/99-kestrel-userns.conf <<'EOF'
+kernel.apparmor_restrict_unprivileged_userns = 0
+EOF
+      sysctl --system
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+      if [ ! -d "$HOME/.cargo" ]; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      fi
+      if [ ! -d "$HOME/.bun" ]; then
+        curl -fsSL https://bun.sh/install | bash
+      fi
+
+message: |
+  Repo is mounted under your home directory as Container-Runtime.
+  Run 'limactl shell kestrel' then 'cd Container-Runtime' to start working.
