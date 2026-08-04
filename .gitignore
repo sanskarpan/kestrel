@@ -1,0 +1,6 @@
+/target
+**/target
+node_modules/
+web/dist/
+.lima/*.log
+.DS_Store
