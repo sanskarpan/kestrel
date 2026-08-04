@@ -1,0 +1,49 @@
+[package]
+name = "kestrel-security"
+edition.workspace = true
+version.workspace = true
+
+# Task 13's capstone lifecycle test needs a real exec'd process to report
+# on its own post-apply_all() security state, which means it needs a real
+# `[[bin]]` target this crate's own `[dependencies]` can fully build (no
+# access to `[dev-dependencies]` for `[[bin]]` targets — those are plain
+# `cargo build` artifacts, not `cargo test` ones). `caps`/`nix`/`libc` are
+# all already regular dependencies below, so this fixture needs nothing
+# added to satisfy its own build.
+[[bin]]
+name = "fixture-security-report"
+path = "tests/fixtures/security_report.rs"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+nix = { workspace = true, features = ["process", "resource", "user"] }
+libc.workspace = true
+caps = "0.5"
+libseccomp = "0.3"
+serde_json.workspace = true
+kestrel-oci = { path = "../kestrel-oci" }
+
+[dev-dependencies]
+kestrel-ns = { path = "../kestrel-ns" }
+# Task 13 (tests/lifecycle.rs) calls the real kestrel_init::exec::exec_into
+# — this makes kestrel-security (dev-dep) -> kestrel-init (regular dep) ->
+# kestrel-security (regular dep) a cycle, but Cargo allows it because
+# dev-dependencies are exempt from the cycle check. Same precedent already
+# established between kestrel-ns/kestrel-cgroup in Phase 3. Verified this
+# actually builds (see Task 13 report) before committing to this path over
+# the plan's own fallback (hosting the fixture/test in kestrel-init's own
+# tests/ instead).
+kestrel-init = { path = "../kestrel-init" }
+# "mount"/"sched" are only needed by tests/caps.rs (a real MS_REMOUNT
+# probe, plus unshare(CLONE_NEWNS) to contain it in a private mount
+# namespace copy — see that file's containment reasoning). "signal" is
+# needed by tests/notify.rs's run_notify_loop test, which sends SIGKILL
+# (nix::sys::signal::kill) to manufacture a stale notify request. "fs" is
+# needed by tests/lifecycle.rs for nix::unistd::dup2 (dup2'ing the pipe
+# write end onto the forked child's STDOUT_FILENO before exec_into, since
+# dup2 survives across execve but a plain Rust `Stdio` redirect wouldn't
+# survive a manual fork+exec_into like this). Cargo unifies this with the
+# main nix dependency's features, so the non-test build stays unaffected.
+nix = { workspace = true, features = ["mount", "sched", "signal", "fs"] }
