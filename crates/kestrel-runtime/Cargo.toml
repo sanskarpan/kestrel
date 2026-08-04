@@ -1,0 +1,13 @@
+[package]
+name = "kestrel-runtime"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+kestrel-ns = { path = "../kestrel-ns" }
+nix = { workspace = true, features = ["fs", "user", "sched", "process"] }
+libc.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
