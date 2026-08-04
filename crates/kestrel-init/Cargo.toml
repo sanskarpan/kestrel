@@ -1,0 +1,34 @@
+[package]
+name = "kestrel-init"
+edition.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "kestrel-init"
+path = "src/main.rs"
+
+[[bin]]
+name = "fixture-setuid-check"
+path = "tests/fixtures/setuid_check.rs"
+
+[[bin]]
+name = "fixture-denied-syscall"
+path = "tests/fixtures/denied_syscall.rs"
+
+# NOTE: libc is a REGULAR (non-dev) dependency, even though its only use
+# in this crate's own src/ is indirect (via nix) — the `fixture-denied-
+# syscall` [[bin]] target below calls `libc::personality` directly, and
+# [[bin]] targets are built by plain `cargo build`, which does NOT have
+# access to [dev-dependencies] (those only apply to `cargo test`/`cargo
+# bench` targets). Putting it here also makes it available to
+# tests/exec_via_kestrel_init.rs, which needs `libc::EPERM`.
+[dependencies]
+anyhow.workspace = true
+nix = { workspace = true, features = ["process", "signal", "user"] }
+libc.workspace = true
+kestrel-oci = { path = "../kestrel-oci" }
+kestrel-security = { path = "../kestrel-security" }
+
+[dev-dependencies]
+kestrel-ns = { path = "../kestrel-ns" }
+tempfile = "3"
