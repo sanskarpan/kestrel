@@ -10,6 +10,19 @@
 # anticipated that every syscall this phase adds "doesn't exist on macOS."
 # Phase 0/1's host-agnostic property was scoped to Phase 0/1 only, not the
 # whole project.
+#
+# NOTE (Phase 6): kestrel-image also adds a real registry HTTP client on
+# top of the above (async, via tokio — see check-no-tokio's own comment for
+# why that doesn't apply to kestrel-runtime). Its one `#[ignore]`d e2e test
+# (`pull_e2e`, in crates/kestrel-image/tests/pull_e2e.rs) additionally
+# needs real network access to Docker Hub, gated behind its own
+# `KESTREL_TEST_NETWORK=1` env var checked inside the test itself — plain
+# `#[ignore]` isn't enough to keep it out of `test-root`'s `--ignored`
+# sweep below, since that sweep re-includes every ignored test workspace-
+# wide. Neither `test` nor `test-root` below run it for real: without
+# `KESTREL_TEST_NETWORK=1` set, it just prints a skip message and returns.
+# Run it for real with:
+#   sudo -E KESTREL_TEST_NETWORK=1 cargo test -p kestrel-image --test pull_e2e -- --ignored --nocapture
 .PHONY: build test test-root oci-conformance web-dev tui vm-up vm-ssh vm-provision check-no-tokio
 
 build:
