@@ -11,7 +11,34 @@ nix = { workspace = true, features = ["fs"] }
 libc.workspace = true
 tar = "0.4.45"
 xattr = "1"
+sha2 = "0.10"
+kestrel-oci = { path = "../kestrel-oci" }
+kestrel-rootfs = { path = "../kestrel-rootfs" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
+reqwest = { version = "0.12", features = ["stream", "json", "rustls-tls"], default-features = false }
+async-compression = { version = "0.4", features = ["tokio", "gzip", "zstd"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+serde.workspace = true
+serde_json.workspace = true
+flate2 = "1"
+zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3"
 kestrel-ns = { path = "../kestrel-ns" }
+wiremock = "0.6"
+# Task 9's real e2e capstone (tests/pull_e2e.rs) needs a real exec_into()
+# call — kestrel-init doesn't depend on kestrel-image (or kestrel-rootfs)
+# at all, regular or otherwise, so unlike kestrel-security's dev-dependency
+# on kestrel-init (crates/kestrel-security/Cargo.toml), this one doesn't
+# even create a dev-dependency cycle.
+kestrel-init = { path = "../kestrel-init" }
+# "mount"/"sched" are only needed by tests/common/mod.rs's mount-namespace-
+# isolation helper (unshare(CLONE_NEWNS) + a private remount of "/"),
+# duplicated from kestrel-rootfs/tests/common/mod.rs for the same reason
+# that helper exists there — see that file's own doc comment. Cargo unifies
+# this with the main `nix` dependency's "fs" feature, so the non-test build
+# is unaffected. Same precedent as kestrel-security/Cargo.toml's own
+# dev-dependency `nix` feature override.
+nix = { workspace = true, features = ["fs", "mount", "sched"] }

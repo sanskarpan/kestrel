@@ -65,7 +65,8 @@ pub mod runtime {
 
 pub mod image_spec {
     pub use oci_spec::image::{
-        Config, ConfigBuilder, Descriptor, ImageConfiguration, ImageConfigurationBuilder,
-        ImageIndex, ImageManifest, RootFs, RootFsBuilder,
+        Config, ConfigBuilder, Descriptor, DescriptorBuilder, Digest, ImageConfiguration,
+        ImageConfigurationBuilder, ImageIndex, ImageIndexBuilder, ImageManifest, Platform,
+        PlatformBuilder, RootFs, RootFsBuilder,
     };
 }

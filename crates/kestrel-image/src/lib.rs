@@ -1,4 +1,11 @@
 pub mod apply;
+pub mod auth;
+pub mod digest;
+pub mod manifest;
+pub mod pull;
+pub mod reference;
+pub mod registry;
+pub mod store;
 
 /// Fork/namespace tests aside, this crate's fixture-building helper is also
 /// shared by other crates' integration tests (e.g. `kestrel-rootfs/tests/
