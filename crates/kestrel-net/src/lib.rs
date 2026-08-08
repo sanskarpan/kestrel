@@ -4,5 +4,6 @@
 
 pub mod bridge;
 pub mod ipam;
+pub mod nat;
 pub mod netns;
 pub mod veth;
