@@ -1,6 +1,7 @@
 pub mod bundle;
 pub mod create;
 pub mod delete;
+pub mod exec_cmd;
 pub mod kill;
 pub mod pause;
 pub mod preflight;

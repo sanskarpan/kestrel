@@ -14,6 +14,15 @@ version.workspace = true
 name = "fixture-stub-init"
 path = "tests/fixtures/stub_init.rs"
 
+# Exec target for `tests/exec_cmd.rs` — reports its own `/proc/self/ns/*`
+# identities (to prove `exec_cmd::exec` genuinely joined the container's
+# namespaces) and supports a caller-chosen exit code or self-signal (to
+# prove exit-code propagation). Same additional-`[[bin]]`-target
+# convention as `fixture-stub-init` above.
+[[bin]]
+name = "fixture-exec-probe"
+path = "tests/fixtures/exec_probe.rs"
+
 [dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
 kestrel-oci = { path = "../kestrel-oci" }
