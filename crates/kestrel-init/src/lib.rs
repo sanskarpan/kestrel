@@ -11,5 +11,7 @@
 
 pub mod bootstrap;
 pub mod exec;
+pub mod fifo;
 pub mod mounts;
 pub mod pdeathsig;
+pub mod reaper;
