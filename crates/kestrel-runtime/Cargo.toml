@@ -20,7 +20,7 @@ kestrel-oci = { path = "../kestrel-oci" }
 kestrel-rootfs = { path = "../kestrel-rootfs" }
 kestrel-cgroup = { path = "../kestrel-cgroup" }
 kestrel-init = { path = "../kestrel-init" }
-nix = { workspace = true, features = ["fs", "user", "sched", "process", "socket"] }
+nix = { workspace = true, features = ["fs", "user", "sched", "process", "socket", "signal"] }
 libc.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
