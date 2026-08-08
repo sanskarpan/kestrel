@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kestrel_ns::test_util::run_isolated;
 use kestrel_ns::types::{IdMapping, NamespacePlan, NsType};
@@ -137,5 +137,70 @@ fn test_userns_maps_uid_0_inside_maps_to_invoking_uid_outside() {
         // the time we read this; the waitpid above already proved the
         // in-namespace uid was 0, which is the actual invariant under test)
         let _ = uid_map;
+    });
+}
+
+/// Regression test for a real bug: `stage0_inner` used to unconditionally
+/// wait for `Sync::RequestMaps` as its first message, but `stage1` only
+/// ever sends `RequestMaps` (and does the id-map handshake) inside its own
+/// `if plan.has_user_ns()` block. Every other test in this file/crate
+/// requests `NsType::User`, so `has_user_ns()` was always true and this
+/// mismatch was invisible — a plan with NO user namespace (the default,
+/// most common case for a plain OCI bundle) hit the exact gap: `stage0`
+/// blocked on a `RequestMaps` that `stage1` never sends, until the 10s
+/// timeout fired and `run_stages` returned an error instead of a running
+/// container. This requires real root: unsharing PID/UTS without first
+/// establishing a user namespace needs CAP_SYS_ADMIN, which an unprivileged
+/// caller mapped only via `self_mapped_plan` (see above) does not have.
+#[test]
+#[ignore = "requires root"]
+fn test_no_user_namespace_completes_without_userns_handshake() {
+    run_isolated(|| {
+        let plan = NamespacePlan {
+            create: vec![NsType::Pid, NsType::Uts],
+            uid_maps: vec![],
+            gid_maps: vec![],
+        };
+
+        let start = Instant::now();
+        let result = kestrel_ns::stages::run_stages(&plan, None, || {
+            // Prove child_action actually ran: inside the new PID
+            // namespace, this process must be PID 1. Encode the
+            // observation in the exit status, same pattern as
+            // `test_pid_isolation` above.
+            let code = if nix::unistd::getpid().as_raw() == 1 {
+                0
+            } else {
+                1
+            };
+            // SAFETY: see the matching comment in `test_pid_isolation` —
+            // this closure is stage2 / PID 1 of a freshly unshared
+            // namespace inside a forked child; `_exit` must be used
+            // instead of a normal return so control never falls back into
+            // stage1's own frame.
+            unsafe { libc::_exit(code) };
+        })
+        .expect("run_stages must succeed promptly for a plan with no user namespace");
+        let elapsed = start.elapsed();
+
+        // The bug made this path block for the full 10s `RequestMaps`
+        // timeout before failing outright. A correct implementation
+        // recognizes `!plan.has_user_ns()` and skips straight to
+        // `ReportPid`, so this should complete in well under a second —
+        // assert generously (5s) to stay robust on a loaded CI box while
+        // still clearly distinguishing "worked" from "hit the old
+        // 10s-timeout bug".
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "run_stages took {elapsed:?} — looks like it fell back to waiting on a \
+             RequestMaps handshake that a no-user-namespace stage1 never sends"
+        );
+
+        let status = nix::sys::wait::waitpid(result.init_pid, None).unwrap();
+        assert_eq!(
+            status,
+            nix::sys::wait::WaitStatus::Exited(result.init_pid, 0),
+            "PID 1 inside the new namespace did not see itself as PID 1"
+        );
     });
 }

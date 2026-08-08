@@ -3,11 +3,56 @@ name = "kestrel-runtime"
 edition.workspace = true
 version.workspace = true
 
+# `src/main.rs` remains the default (autodiscovered) `kestrel-runtime`
+# binary; this is an ADDITIONAL bin target, matching kestrel-init's own
+# `[[bin]] fixture-*` precedent (crates/kestrel-init/Cargo.toml) — a
+# minimal stand-in "kestrel-init" that `tests/create_pins_namespaces.rs`
+# execs into (via `CARGO_BIN_EXE_fixture-stub-init`), so that test doesn't
+# need a real, fully-functional kestrel-init to prove namespace pinning
+# works.
+[[bin]]
+name = "fixture-stub-init"
+path = "tests/fixtures/stub_init.rs"
+
+# Exec target for `tests/exec_cmd.rs` — reports its own `/proc/self/ns/*`
+# identities (to prove `exec_cmd::exec` genuinely joined the container's
+# namespaces) and supports a caller-chosen exit code or self-signal (to
+# prove exit-code propagation). Same additional-`[[bin]]`-target
+# convention as `fixture-stub-init` above.
+[[bin]]
+name = "fixture-exec-probe"
+path = "tests/fixtures/exec_probe.rs"
+
+# Container-entrypoint fixture for Task 16's capstone `tests/lifecycle.rs`
+# (test_create_then_start / test_exit_code_propagates /
+# test_signal_exit_code / test_zombie_reaping / test_hooks_fire_in_order).
+# Same additional-`[[bin]]`-target convention as the two fixtures above.
+# Empirically confirmed (Task 15) this needs the SAME static-linking
+# treatment as `kestrel-init` itself (see the Makefile's
+# `build-kestrel-init-static` target and this fixture's own doc comment)
+# — a plain dynamically-linked build fails at exec time once
+# chroot/pivot_root'd into `build_synthetic_rootfs`'s minimal rootfs,
+# which deliberately provides no dynamic linker or libc.
+[[bin]]
+name = "lifecycle_fixture"
+path = "tests/fixtures/lifecycle_fixture.rs"
+
 [dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
-nix = { workspace = true, features = ["fs", "user", "sched", "process"] }
+kestrel-oci = { path = "../kestrel-oci" }
+kestrel-rootfs = { path = "../kestrel-rootfs" }
+kestrel-security = { path = "../kestrel-security" }
+kestrel-cgroup = { path = "../kestrel-cgroup" }
+kestrel-init = { path = "../kestrel-init" }
+nix = { workspace = true, features = ["fs", "user", "sched", "process", "socket", "signal"] }
 libc.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
