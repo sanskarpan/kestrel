@@ -23,6 +23,19 @@
 # `KESTREL_TEST_NETWORK=1` set, it just prints a skip message and returns.
 # Run it for real with:
 #   sudo -E KESTREL_TEST_NETWORK=1 cargo test -p kestrel-image --test pull_e2e -- --ignored --nocapture
+#
+# NOTE (Phase 7): kestrel-net adds a real bridge/veth network data path (via
+# the rtnetlink crate) plus iptables-based NAT/port-publishing on top of the
+# above — this crate needs `iptables` present in the VM (see nat.rs's
+# DNAT/MASQUERADE chain management). Its root-gated tests manipulate real
+# bridges, veths, network namespaces, and iptables nat/filter rules, but
+# each such test is fully isolated via `unshare(CLONE_NEWNET)` before it
+# runs (see crates/kestrel-net/tests/common/mod.rs's
+# `run_in_isolated_netns`) — analogous to how kestrel-rootfs/kestrel-image's
+# own tests/common/mod.rs isolates mount-namespace-mutating tests via
+# `unshare(CLONE_NEWNS)` + a private MS_PRIVATE|MS_REC remount — so none of
+# kestrel-net's test mutations ever touch the VM's actual host network
+# state.
 .PHONY: build test test-root oci-conformance web-dev tui vm-up vm-ssh vm-provision check-no-tokio
 
 build:
