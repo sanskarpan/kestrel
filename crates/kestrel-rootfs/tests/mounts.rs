@@ -9,7 +9,7 @@ use nix::mount::{mount, umount2, MntFlags, MsFlags};
 mod common;
 
 use kestrel_rootfs::bindmount::bind_readonly;
-use kestrel_rootfs::mounts::{bind_default_devices, create_default_devices, setup_standard_mounts};
+use kestrel_rootfs::mounts::{bind_default_devices, bind_mount_file, create_default_devices, setup_standard_mounts};
 
 #[test]
 #[ignore = "requires root"]
@@ -161,5 +161,63 @@ fn test_setup_standard_mounts_ptmx_symlink_works() {
         setup_standard_mounts(&rootfs).expect("setup_standard_mounts");
         let target = fs::read_link(rootfs.join("dev/ptmx")).unwrap();
         assert_eq!(target, std::path::Path::new("pts/ptmx"));
+    });
+}
+
+#[test]
+#[ignore = "requires root"]
+fn test_bind_mount_file_is_a_real_bind_not_a_copy_and_unmounts_cleanly() {
+    use nix::sys::stat::stat;
+
+    let src_dir = tempfile::tempdir().unwrap();
+    let src_path = src_dir.path().join("source.txt");
+    fs::write(&src_path, b"hello from source").unwrap();
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rootfs = tmp.path().to_path_buf();
+    let relative_target = std::path::PathBuf::from("etc/resolv.conf");
+
+    common::run_in_fresh_mount_ns(move || {
+        bind_mount_file(&src_path, &rootfs, &relative_target).expect("bind_mount_file");
+
+        let target_path = rootfs.join(&relative_target);
+
+        // Prove it's a genuine bind mount (same underlying inode+device as
+        // the source), not a copy.
+        let src_stat = stat(&src_path).unwrap();
+        let target_stat = stat(&target_path).unwrap();
+        assert_eq!(target_stat.st_dev, src_stat.st_dev, "bind-mounted target should share the source's st_dev");
+        assert_eq!(target_stat.st_ino, src_stat.st_ino, "bind-mounted target should share the source's inode");
+
+        // Write through the target, read from the source: proves the bind
+        // is live and read-write, not a one-shot copy.
+        fs::write(&target_path, b"written through target").unwrap();
+        let via_source = fs::read_to_string(&src_path).unwrap();
+        assert_eq!(via_source, "written through target");
+
+        // Write through the source, read from the target: the reverse
+        // direction.
+        fs::write(&src_path, b"written through source").unwrap();
+        let via_target = fs::read_to_string(&target_path).unwrap();
+        assert_eq!(via_target, "written through source");
+
+        umount2(&target_path, MntFlags::MNT_DETACH).unwrap();
+
+        // After unmount, the target reverts to the empty regular file that
+        // bind_mount_file created as the mount point: different inode than
+        // the source, and none of the content written through the bind
+        // mount leaked into it. That's the "no host residue" proof — the
+        // mount point is back to a plain, empty file, not still carrying
+        // the source's data.
+        let target_after = stat(&target_path).unwrap();
+        assert_ne!(
+            target_after.st_ino, src_stat.st_ino,
+            "target should no longer share the source's inode after unmount"
+        );
+        let leftover = fs::read_to_string(&target_path).unwrap();
+        assert!(
+            leftover.is_empty(),
+            "unmounted target should be the empty file bind_mount_file created, not leaking bind-mount content: got {leftover:?}"
+        );
     });
 }
