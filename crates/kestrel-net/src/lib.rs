@@ -4,3 +4,4 @@
 
 pub mod bridge;
 pub mod netns;
+pub mod veth;
