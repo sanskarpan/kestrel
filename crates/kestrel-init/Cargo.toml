@@ -34,7 +34,11 @@ kestrel-security = { path = "../kestrel-security" }
 [dev-dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
 tempfile = "3"
-# "sched" is needed by mounts.rs's own root-gated tests (unshare
+# "sched" is only needed by mounts.rs's own root-gated tests (unshare
 # CLONE_NEWUTS to isolate the sethostname probe from the real host
-# hostname).
-nix = { workspace = true, features = ["sched"] }
+# hostname). "fs" is only needed by fifo.rs's own test (nix::unistd::mkfifo
+# + nix::sys::stat::Mode, both gated behind nix's "fs" feature). Cargo
+# unifies these with the main nix dependency's features for non-test
+# builds, same precedent already established in kestrel-security's own
+# Cargo.toml.
+nix = { workspace = true, features = ["sched", "fs"] }
