@@ -24,11 +24,17 @@ path = "tests/fixtures/denied_syscall.rs"
 # tests/exec_via_kestrel_init.rs, which needs `libc::EPERM`.
 [dependencies]
 anyhow.workspace = true
-nix = { workspace = true, features = ["process", "signal", "user"] }
+nix = { workspace = true, features = ["process", "signal", "user", "hostname"] }
 libc.workspace = true
+serde_json.workspace = true
 kestrel-oci = { path = "../kestrel-oci" }
+kestrel-rootfs = { path = "../kestrel-rootfs" }
 kestrel-security = { path = "../kestrel-security" }
 
 [dev-dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
 tempfile = "3"
+# "sched" is needed by mounts.rs's own root-gated tests (unshare
+# CLONE_NEWUTS to isolate the sethostname probe from the real host
+# hostname).
+nix = { workspace = true, features = ["sched"] }
