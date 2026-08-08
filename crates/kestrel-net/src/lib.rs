@@ -3,5 +3,6 @@
 //! docs/superpowers/specs/2026-08-05-phase7-networking-design.md.
 
 pub mod bridge;
+pub mod ipam;
 pub mod netns;
 pub mod veth;
