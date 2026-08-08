@@ -23,6 +23,20 @@ path = "tests/fixtures/stub_init.rs"
 name = "fixture-exec-probe"
 path = "tests/fixtures/exec_probe.rs"
 
+# Container-entrypoint fixture for Task 16's capstone `tests/lifecycle.rs`
+# (test_create_then_start / test_exit_code_propagates /
+# test_signal_exit_code / test_zombie_reaping / test_hooks_fire_in_order).
+# Same additional-`[[bin]]`-target convention as the two fixtures above.
+# Empirically confirmed (Task 15) this needs the SAME static-linking
+# treatment as `kestrel-init` itself (see the Makefile's
+# `build-kestrel-init-static` target and this fixture's own doc comment)
+# — a plain dynamically-linked build fails at exec time once
+# chroot/pivot_root'd into `build_synthetic_rootfs`'s minimal rootfs,
+# which deliberately provides no dynamic linker or libc.
+[[bin]]
+name = "lifecycle_fixture"
+path = "tests/fixtures/lifecycle_fixture.rs"
+
 [dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
 kestrel-oci = { path = "../kestrel-oci" }

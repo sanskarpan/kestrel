@@ -36,10 +36,52 @@
 # `unshare(CLONE_NEWNS)` + a private MS_PRIVATE|MS_REC remount — so none of
 # kestrel-net's test mutations ever touch the VM's actual host network
 # state.
-.PHONY: build test test-root oci-conformance web-dev tui vm-up vm-ssh vm-provision check-no-tokio
+.PHONY: build test test-root oci-conformance web-dev tui vm-up vm-ssh vm-provision check-no-tokio build-kestrel-init-static build-lifecycle-fixture-static
 
 build:
 	cargo build --workspace
+
+# kestrel-init runs as PID 1 INSIDE the container, after pivot_root has
+# already swapped `/` to the container's merged rootfs — at that point the
+# host's dynamic linker and shared libraries are no longer reachable, so a
+# normal (dynamically-linked) `cargo build -p kestrel-init` output cannot
+# actually serve as PID 1. This target is deliberately NOT folded into the
+# default `build` above: doing so via a blanket `.cargo/config.toml`
+# `[target.*] rustflags` would force `+crt-static` onto every binary this
+# workspace builds for aarch64-unknown-linux-gnu — including
+# kestrel-runtime and every test binary — which is broader than needed and
+# risks unintended effects on binaries that were never meant to be static.
+# Confirmed (Phase 8 Task 5) that plain `-C target-feature=+crt-static` on
+# the default gnu target produces a genuinely static `kestrel-init` even
+# though it depends on kestrel-security's libseccomp FFI binding; musl was
+# tried first and rejected (see this plan's Task 5 notes).
+#
+# IMPORTANT for whoever builds Task 16's capstone test: that test needs to
+# actually pivot_root and execve this binary as a real container's PID 1.
+# It MUST reference the binary THIS target produces, not the default
+# `cargo build`'s dynamically-linked one — using the wrong artifact will
+# not fail at build time, only at container-run time, in a way that's easy
+# to misdiagnose as a bug in kestrel-init's own logic.
+build-kestrel-init-static:
+	RUSTFLAGS="-C target-feature=+crt-static" cargo build --target aarch64-unknown-linux-gnu -p kestrel-init
+
+# Same rationale as build-kestrel-init-static above, applied to
+# kestrel-runtime's `lifecycle_fixture` [[bin]] target (Phase 8 Task 16's
+# capstone-test entrypoint fixture): it is exec'd by an ALREADY-pivot_root'd
+# kestrel-init INSIDE the container's own mount namespace (see
+# crates/kestrel-runtime/tests/fixtures/lifecycle_fixture.rs's own doc
+# comment), so a plain (dynamically-linked) `cargo build`/`cargo test`
+# output cannot actually run once chroot'd/pivot_root'd into
+# `tests/common/mod.rs::build_synthetic_rootfs`'s minimal rootfs, which
+# deliberately provides no dynamic linker or libc. Empirically confirmed
+# (Task 15) with a real `chroot`: the plain `cargo test`-built
+# `CARGO_BIN_EXE_lifecycle_fixture` is dynamically linked and fails with
+# ENOENT at exec time in that rootfs; this target's static output does not.
+# `build_synthetic_rootfs` requires this exact target's output to exist (at
+# target/aarch64-unknown-linux-gnu/debug/lifecycle_fixture) and panics with
+# a message pointing back at this target if it's missing or not static.
+build-lifecycle-fixture-static:
+	RUSTFLAGS="-C target-feature=+crt-static" cargo build --target aarch64-unknown-linux-gnu -p kestrel-runtime --bin lifecycle_fixture
 
 test: check-no-tokio
 	cargo test --workspace
