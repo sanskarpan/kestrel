@@ -3,6 +3,23 @@ name = "kestrel-net"
 edition.workspace = true
 version.workspace = true
 
+[[bin]]
+name = "netns-helper"
+path = "src/bin/netns-helper.rs"
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+nix = { workspace = true, features = ["sched", "mount", "process", "fs"] }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+kestrel-ns = { path = "../kestrel-ns" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "net", "sync", "time", "fs", "io-util"] }
+rtnetlink = "0.21"
+futures-util = "0.3"
+ipnetwork = "0.21"
+
+[dev-dependencies]
+tempfile = "3"
