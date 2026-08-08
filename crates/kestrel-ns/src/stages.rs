@@ -208,16 +208,23 @@ fn stage0(sock: &UnixDatagram, stage1_pid: Pid, plan: &NamespacePlan) -> Result<
 }
 
 fn stage0_inner(sock: &UnixDatagram, stage1_pid: Pid, plan: &NamespacePlan) -> Result<Pid> {
-    match recv_sync_timeout(sock, Duration::from_secs(10))? {
-        Sync::RequestMaps => {}
-        Sync::Error(e) => bail!("stage1 failed before maps: {e}"),
-        other => bail!("unexpected sync from stage1: {other:?}"),
-    }
-
+    // Mirror stage1's own `if plan.has_user_ns()` gating exactly: stage1
+    // only sends `RequestMaps` (and later waits for `MapsDone`) when it's
+    // about to unshare a user namespace. When the plan has no user
+    // namespace, stage1 skips that whole handshake and goes straight to
+    // `ReportPid` — so stage0 must skip the same handshake in lockstep, or
+    // it blocks on a `RequestMaps` that will never arrive until the
+    // timeout fires.
     if plan.has_user_ns() {
+        match recv_sync_timeout(sock, Duration::from_secs(10))? {
+            Sync::RequestMaps => {}
+            Sync::Error(e) => bail!("stage1 failed before maps: {e}"),
+            other => bail!("unexpected sync from stage1: {other:?}"),
+        }
+
         write_id_maps(stage1_pid, &plan.uid_maps, &plan.gid_maps)?;
+        send_sync(sock, &Sync::MapsDone)?;
     }
-    send_sync(sock, &Sync::MapsDone)?;
 
     let init_pid = match recv_sync_timeout(sock, Duration::from_secs(30))? {
         Sync::ReportPid(p) => Pid::from_raw(p),

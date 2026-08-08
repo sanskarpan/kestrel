@@ -3,10 +3,24 @@ name = "kestrel-runtime"
 edition.workspace = true
 version.workspace = true
 
+# `src/main.rs` remains the default (autodiscovered) `kestrel-runtime`
+# binary; this is an ADDITIONAL bin target, matching kestrel-init's own
+# `[[bin]] fixture-*` precedent (crates/kestrel-init/Cargo.toml) — a
+# minimal stand-in "kestrel-init" that `tests/create_pins_namespaces.rs`
+# execs into (via `CARGO_BIN_EXE_fixture-stub-init`), so that test doesn't
+# need a real, fully-functional kestrel-init to prove namespace pinning
+# works.
+[[bin]]
+name = "fixture-stub-init"
+path = "tests/fixtures/stub_init.rs"
+
 [dependencies]
 kestrel-ns = { path = "../kestrel-ns" }
 kestrel-oci = { path = "../kestrel-oci" }
-nix = { workspace = true, features = ["fs", "user", "sched", "process"] }
+kestrel-rootfs = { path = "../kestrel-rootfs" }
+kestrel-cgroup = { path = "../kestrel-cgroup" }
+kestrel-init = { path = "../kestrel-init" }
+nix = { workspace = true, features = ["fs", "user", "sched", "process", "socket"] }
 libc.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
