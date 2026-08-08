@@ -107,8 +107,26 @@ check-no-tokio:
 # be silently skipped — currently unique in the workspace (grep-checked).
 # If this test is ever renamed, update this line too; nothing else will
 # warn you.
+#
+# --test-threads=1: crates/kestrel-runtime/tests/lifecycle.rs (Phase 8 Task
+# 16's capstone suite) deliberately shares ONE real data_dir
+# (`/var/lib/kestrel`, not a per-test tempdir — see that file's own "Why
+# `data_dir` is the REAL `/var/lib/kestrel`" doc comment) and mounts a
+# single, fixed cgroup2 view at `data_dir()/cgroups` per test via its
+# `setup()`/`MountGuard` pair. That file's own module doc even spells out
+# the required invocation with `--test-threads=1` explicitly. Without it,
+# cargo's default per-binary thread-per-test parallelism runs several of
+# those tests' `mount -t cgroup2 none .../cgroups` calls concurrently
+# against the same target path, so all but the first fail with `mount:
+# .../cgroups: none already mounted on .../cgroups` — a test-harness
+# concurrency bug, not a product defect. Applying this workspace-wide (not
+# just to `-p kestrel-runtime --test lifecycle`) is simpler than trying to
+# scope it per-binary from `cargo test --workspace`, and every other
+# root-gated test in the workspace is correctness-safe under serial
+# execution too (just slower) since none of them depend on true
+# concurrency.
 test-root:
-	sudo -E $$(command -v cargo || echo "$$HOME/.cargo/bin/cargo") test --workspace -- --ignored --skip test_join_order_matters
+	sudo -E $$(command -v cargo || echo "$$HOME/.cargo/bin/cargo") test --workspace -- --ignored --skip test_join_order_matters --test-threads=1
 
 oci-conformance:
 	@echo "oci-conformance requires runtime-tools + the Lima VM (Phase 13)." >&2
