@@ -2,7 +2,9 @@
 //! kestrel-specific extensions (validation, default-spec generation,
 //! image-config translation, user resolution, forward-compatible parsing).
 
+pub mod bootstrap;
 pub mod default_spec;
+pub mod hooks;
 pub mod image;
 pub mod raw;
 pub mod state;
@@ -14,7 +16,10 @@ pub mod runtime {
         Arch,
         Capabilities,
         Capability,
+        Hook,
+        HookBuilder,
         Hooks,
+        HooksBuilder,
         Linux,
         LinuxBlockIo,
         LinuxBlockIoBuilder,
@@ -31,6 +36,7 @@ pub mod runtime {
         LinuxMemory,
         LinuxMemoryBuilder,
         LinuxNamespace,
+        LinuxNamespaceBuilder,
         LinuxNamespaceType,
         LinuxPids,
         LinuxPidsBuilder,
