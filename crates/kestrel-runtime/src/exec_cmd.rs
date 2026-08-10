@@ -140,7 +140,14 @@ pub fn exec(id: &str, run_dir: &Path, process: &Process) -> Result<i32> {
             Ok(exit_code_from_status(status))
         }
         nix::unistd::ForkResult::Child => {
-            let _: anyhow::Result<std::convert::Infallible> = kestrel_init::exec::exec_into(process, None);
+            // `notify_sink: None` — `kestrel exec` sessions are one-off
+            // (design doc §7 / Phase 9 Task 16 scopes the fd-hand-back
+            // mechanism to the entrypoint only; an exec'd process's own
+            // `seccomp` parameter is already `None` here, so `apply_all`
+            // never installs a filter for it in the first place, and there
+            // is no notify fd to send regardless).
+            let _: anyhow::Result<std::convert::Infallible> =
+                kestrel_init::exec::exec_into(process, None, None);
             // Only reached if exec_into itself failed (e.g. the target
             // program doesn't exist, or the security pipeline rejected
             // it) — never on success, since a successful execve replaces

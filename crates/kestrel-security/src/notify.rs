@@ -130,7 +130,21 @@ use libseccomp::{notify_id_valid, ScmpNotifReq, ScmpNotifResp, ScmpNotifRespFlag
 
 /// One decoded seccomp-notify event: which process triggered it, which
 /// syscall, with what arguments, and when this process observed it.
-#[derive(Debug, Clone)]
+///
+/// `Serialize` (Phase 9 Task 16): `kestrel-shim` forwards each event to
+/// `kestreld` as `serde_json`-encoded bytes inside a `Frame::SeccompEvent`
+/// (`kestrel_shim::framing`, type `0x04`) over the existing `attach.sock`
+/// connection convention — see design doc §7. `timestamp: SystemTime`
+/// serializes via serde's own built-in `{"secs_since_epoch",
+/// "nanos_since_epoch"}` representation (confirmed against the vendored
+/// serde 1.0.229 source, `impl Serialize for SystemTime` under `#[cfg(feature
+/// = "std")]`, which this workspace always has) — no custom (de)serializer
+/// needed. No `Deserialize` derive: the only real consumer (`kestreld`'s
+/// `api::attach`) only needs the `syscall` field back out and parses the
+/// wire bytes as a generic `serde_json::Value` rather than reconstructing a
+/// full `NotifyEvent` (avoids `kestreld` needing a dependency on this crate
+/// just for this one type).
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct NotifyEvent {
     pub pid: u32,
     pub syscall: String,

@@ -96,7 +96,7 @@ fn test_no_new_privs_blocks_setuid_elevation() {
         // exec_into replaces THIS (already-forked, disposable) process's
         // image entirely — its exit code IS the test result, observed by
         // run_isolated's own waitpid in the real parent process.
-        let _ = exec_into(&process, None);
+        let _ = exec_into(&process, None, None);
         unreachable!("exec_into only returns on failure");
     });
 
@@ -135,7 +135,7 @@ fn test_seccomp_filter_is_active_before_entrypoints_first_syscall() {
             .build()
             .unwrap();
 
-        let _ = exec_into(&process, Some(&seccomp));
+        let _ = exec_into(&process, Some(&seccomp), None);
         unreachable!("exec_into only returns on failure");
     });
 }

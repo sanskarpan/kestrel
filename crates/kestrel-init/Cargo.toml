@@ -24,7 +24,12 @@ path = "tests/fixtures/denied_syscall.rs"
 # tests/exec_via_kestrel_init.rs, which needs `libc::EPERM`.
 [dependencies]
 anyhow.workspace = true
-nix = { workspace = true, features = ["process", "signal", "user", "hostname"] }
+# "socket" (Phase 9 Task 16): `exec.rs::send_fd_to_socket` sends the
+# seccomp-notify fd to `kestrel-shim` via `SCM_RIGHTS`
+# (`nix::sys::socket::{sendmsg, ControlMessage, MsgFlags}`) immediately
+# before execve — real production code, not test-only, so this lives on
+# the main dependency (not the dev-dependency override below).
+nix = { workspace = true, features = ["process", "signal", "user", "hostname", "socket"] }
 libc.workspace = true
 serde_json.workspace = true
 kestrel-oci = { path = "../kestrel-oci" }
@@ -37,8 +42,16 @@ tempfile = "3"
 # "sched" is only needed by mounts.rs's own root-gated tests (unshare
 # CLONE_NEWUTS to isolate the sethostname probe from the real host
 # hostname). "fs" is only needed by fifo.rs's own test (nix::unistd::mkfifo
-# + nix::sys::stat::Mode, both gated behind nix's "fs" feature). Cargo
-# unifies these with the main nix dependency's features for non-test
-# builds, same precedent already established in kestrel-security's own
-# Cargo.toml.
-nix = { workspace = true, features = ["sched", "fs"] }
+# + nix::sys::stat::Mode, both gated behind nix's "fs" feature). "uio" is
+# only needed by exec.rs's own test module (`nix::sys::socket::{recvmsg,
+# ControlMessageOwned}`/`nix::cmsg_space!`, mirroring `kestrel-shim`'s real,
+# non-test use of the same APIs) — explicit here rather than relying on
+# incidental transitive unification from an unrelated crate (confirmed via
+# `cargo build -p kestrel-shim` in isolation that "socket" alone is NOT
+# sufficient for these specific recv-side APIs; kestrel-init's own test
+# build happened to keep compiling without this only because some other
+# workspace crate's dev-dependency graph was unifying "uio" in already —
+# not something to depend on). Cargo unifies these with the main nix
+# dependency's features for non-test builds, same precedent already
+# established in kestrel-security's own Cargo.toml.
+nix = { workspace = true, features = ["sched", "fs", "socket", "uio"] }

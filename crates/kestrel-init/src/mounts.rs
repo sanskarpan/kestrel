@@ -146,6 +146,7 @@ mod tests {
             fifo_host_path: "/run/kestrel/c1/exec.fifo".into(),
             fifo_container_path: "/exec.fifo".into(),
             state_json_path: "/run/kestrel/c1/state.json".into(),
+            seccomp_notify_sink: None,
         }
     }
 
