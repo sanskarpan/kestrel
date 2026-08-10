@@ -10,6 +10,7 @@ members = [
     "crates/kestrel-image",
     "crates/kestrel-runtime",
     "crates/kestrel-init",
+    "crates/kestrel-shim",
     "crates/kestreld",
     "crates/kestrel-cli",
     "crates/kestrel-tui",
