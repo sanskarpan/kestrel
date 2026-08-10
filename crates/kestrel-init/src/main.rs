@@ -76,6 +76,32 @@ fn main() -> anyhow::Result<()> {
     let state_json_path_durable: std::path::PathBuf =
         std::path::PathBuf::from(format!("/proc/self/fd/{state_dir_fd}")).join(state_json_file_name);
 
+    // Phase 9 Task 16: connect to `kestrel-shim`'s `seccomp.sock` NOW,
+    // before `pivot_root` below, for the exact same reason
+    // `state_dir_fd`/`state_json_path_durable` above are resolved
+    // pre-pivot — `bootstrap.seccomp_notify_sink` is a HOST path
+    // (`run_dir/<id>/seccomp.sock`), unreachable from inside this
+    // process's mount namespace once `pivot_root` has run. Unlike a path,
+    // a live socket CONNECTION has no ongoing dependency on the path it
+    // was established through, so (unlike `state_json_path_durable`) no
+    // `/proc/self/fd/<fd>` trick is needed here — just keep the resulting
+    // `OwnedFd` alive across `pivot_root` and the later `fork()` (fork
+    // duplicates the whole fd table regardless of mount-namespace changes
+    // in between) for `exec::exec_into` to use in the forked child, right
+    // before its own `execve`. Root-caused via a real reproduction
+    // (`kestreld`'s own Task 16 capstone test): connecting from INSIDE
+    // `exec_into` itself (post-pivot, as this task's own plan sketch
+    // originally called for) fails with `ENOENT` every time, silently —
+    // `exec_into`'s error is discarded by its caller's `std::process::exit
+    // (127)` below — which looked like a generic, hard-to-diagnose exec
+    // failure until traced back to this exact cause. See
+    // `exec::connect_notify_sink`'s own doc comment for the full story.
+    let notify_conn: Option<std::os::fd::OwnedFd> = bootstrap
+        .seccomp_notify_sink
+        .as_deref()
+        .map(kestrel_init::exec::connect_notify_sink)
+        .transpose()?;
+
     let merged = kestrel_init::mounts::stage_rootfs(std::path::Path::new("/var/lib/kestrel"), &bootstrap)?;
 
     let state_bytes = state_json_bytes(&bootstrap)?;
@@ -102,13 +128,27 @@ fn main() -> anyhow::Result<()> {
     let sfd = nix::sys::signalfd::SignalFd::with_flags(&mask, nix::sys::signalfd::SfdFlags::SFD_CLOEXEC)?;
 
     let entrypoint_pid = match unsafe { nix::unistd::fork()? } {
-        nix::unistd::ForkResult::Parent { child } => child,
+        nix::unistd::ForkResult::Parent { child } => {
+            // PID 1 (this process) has no further use for its own copy of
+            // the pre-pivot seccomp-notify connection — only the forked
+            // child (about to exec_into) needs it. Explicit close here
+            // rather than letting it linger open for this container's
+            // entire remaining lifetime, matching this codebase's
+            // established "close your own inherited copy promptly" fd-
+            // hygiene convention (e.g. `kestrel-runtime create.rs`'s
+            // `host_end`/`init_end` handling).
+            drop(notify_conn);
+            child
+        }
         nix::unistd::ForkResult::Child => {
             // apply_all (caps/no_new_privs/seccomp) + execve — all inside
             // exec_into, applied to THIS (soon-to-be-replaced) child
             // process, not PID 1 itself.
-            let _: anyhow::Result<std::convert::Infallible> =
-                kestrel_init::exec::exec_into(&bootstrap.process, bootstrap.seccomp.as_ref());
+            let _: anyhow::Result<std::convert::Infallible> = kestrel_init::exec::exec_into(
+                &bootstrap.process,
+                bootstrap.seccomp.as_ref(),
+                notify_conn.as_ref().map(std::os::fd::AsFd::as_fd),
+            );
             std::process::exit(127); // only reached if exec_into itself returned Err
         }
     };
