@@ -80,6 +80,19 @@ const DEFAULT_MAX_CONCURRENT_LAYERS: usize = 4;
 static STAGING_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Per-layer metadata read off the manifest, before any network I/O.
+///
+/// `Clone` (added for Phase 9 Task 8's `kestreld` integration): Phase A's
+/// `stream::iter(...).map(...)` closure below moves an OWNED clone of each
+/// item into its `async move` block rather than borrowing from
+/// `layer_meta.iter()` directly — borrowing there triggered a real rustc
+/// HRTB-inference limitation ("implementation of `Send`/`Iterator` is not
+/// general enough") once this whole future needed to be provably `Send`
+/// through axum's `Handler` trait (a bound this crate's own tests never
+/// exercised, since they just `.await` the top-level pull directly without
+/// crossing a `dyn`/trait-object `Send` boundary). Cloning a small,
+/// per-layer metadata struct once per layer is negligible next to the
+/// actual network I/O each of these futures performs.
+#[derive(Clone)]
 struct LayerMeta {
     /// The layer blob's digest as declared in the manifest — i.e. the
     /// digest of the (possibly compressed) bytes as transmitted, NOT the
@@ -178,10 +191,10 @@ pub async fn pull_image_with_client(
 
     let mut phase_a_results: Vec<Option<LayerDownload>> = (0..total).map(|_| None).collect();
     {
-        let mut downloads = stream::iter(layer_meta.iter().enumerate())
+        let mut downloads = stream::iter(layer_meta.iter().cloned().enumerate())
             .map(|(index, meta)| {
                 let client = Arc::clone(&client);
-                async move { download_and_hash_one(client, reference, store, index, meta).await }
+                async move { download_and_hash_one(client, reference, store, index, &meta).await }
             })
             .buffer_unordered(DEFAULT_MAX_CONCURRENT_LAYERS);
 
