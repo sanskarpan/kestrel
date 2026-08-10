@@ -68,6 +68,26 @@
 //!   decimal string, no trailing newline) to that path once the spawn
 //!   loop ends, so a real test can assert against the achieved count
 //!   instead of assuming all `<n>` always succeed.
+//! - `copy <src> <dst>` (Phase 9 Task 3's `create_from_layers.rs`): reads
+//!   the full byte content of `<src>` and writes it verbatim to `<dst>`,
+//!   then exits 0. Intended to be run as the container entrypoint with
+//!   `<src>` a path contributed by a DIFFERENT overlay lower layer than
+//!   the one this binary itself lives in (`/fixture`) — successfully
+//!   reading `<src>` and having its content show up at the host-visible
+//!   `<dst>` (in the overlay's upperdir) is the real proof that a
+//!   multi-entry `lower_chain_ids` list actually merged more than one
+//!   layer into the container's rootfs, not just that `create()` returned
+//!   `Ok`.
+//! - `ignore-sigterm <secs>` (Phase 9 Task 9's `kestreld` stop-grace-period
+//!   test): installs `SIG_IGN` for `SIGTERM` (via a raw `libc::signal`
+//!   call — this fixture has no need for a full `sigaction`-based handler,
+//!   just "don't die"), then sleeps for `<secs>` seconds and exits 0 if
+//!   never otherwise killed. Gives a real test a genuine, on-disk OCI
+//!   container entrypoint that survives `kestrel-runtime kill <id>
+//!   SIGTERM` (proving `kestreld`'s `POST /containers/:id/stop` grace-
+//!   period path genuinely has to escalate to SIGKILL, rather than
+//!   trivially succeeding on the first signal) while still dying
+//!   immediately on SIGKILL, which cannot be caught or ignored.
 //! - `hook-marker <file-path> <phase-label>` (test_hooks_fire_in_order,
 //!   Task 16): opens `<file-path>` in append mode (creating it if
 //!   absent) and writes `<phase-label>\n` to it, then exits 0. Intended
@@ -86,6 +106,82 @@
 //!   synthetic rootfs), NOT assumed to be the same host path used for
 //!   the `createRuntime`/`poststart`/`poststop` hooks, which run on the
 //!   host side.
+//! - `echo-stdin` (Phase 9 Task 12's `kestreld` attach WS test): puts its
+//!   own stdin (fd 0) into raw mode (`cfmakeraw`, i.e. `!ICANON &&
+//!   !ECHO && ...`) if it's a tty — best-effort; a plain pipe stdin
+//!   (`tcgetattr` fails with `ENOTTY`) just skips this step and falls
+//!   through to the same byte-copy loop below — then reads whatever bytes
+//!   arrive on stdin and writes them back to stdout verbatim, in a loop,
+//!   until stdin hits EOF, then exits 0. Gives `kestreld`'s attach WS
+//!   bridge test a real, on-disk OCI container entrypoint whose output is
+//!   a deterministic, byte-for-byte echo of whatever the test sends over
+//!   the WS connection. The raw-mode step specifically matters for the
+//!   tty case: `nix::pty::openpty(None, None)` (`kestrel-shim/src/io.rs`)
+//!   allocates a PTY with the kernel's default canonical-mode-plus-echo
+//!   line discipline, same as a freshly-opened terminal — left as-is, the
+//!   kernel itself would ALSO echo every byte written to the master back
+//!   out (independent of, and IN ADDITION to, this fixture's own explicit
+//!   echo below), doubling the output, and `ICANON` would additionally
+//!   buffer input until a newline, which arbitrary test payloads aren't
+//!   guaranteed to contain. Disabling both up front makes this fixture the
+//!   ONLY source of echoed bytes and gives byte-at-a-time (not
+//!   line-buffered) reads, so a test can assert an exact round-trip match.
+//! - `alloc-hold <mib>` (Phase 9 Task 13's `kestreld` metrics-sampler
+//!   tests — PSI-threshold detection and the OOM watcher): allocates
+//!   `<mib>` mebibytes of memory in 1 MiB increments, each step written
+//!   with a non-zero byte pattern (`0xAB`) and immediately
+//!   `std::hint::black_box`ed — the SAME technique `kestrel-cgroup`'s own
+//!   `crates/kestrel-cgroup/tests/integration.rs::test_memory_limit_ooms`
+//!   established: a plain `vec![0u8; N]` for a large `N` specializes to
+//!   Rust's `alloc_zeroed` (calloc-equivalent) fast path, whose pages
+//!   stay backed by the kernel's shared read-only zero page until
+//!   genuinely written — `memory.current` would never actually rise and
+//!   no real memory pressure or OOM would ever occur with an all-zero
+//!   vec. A short, fixed delay after each 1 MiB step gives a concurrent
+//!   poller (`kestreld`'s metrics sampler) a real chance to observe the
+//!   climb, rather than racing a near-instantaneous allocation loop. If
+//!   this process is still alive once the full `<mib>` has been
+//!   allocated (i.e. it was NOT OOM-killed along the way — either
+//!   `<mib>` didn't actually exceed the caller's configured `memory.max`,
+//!   or reclaim kept up), it holds the allocation and sleeps for a long,
+//!   fixed window so a real test has ample time to observe whatever it's
+//!   checking for before this process would otherwise exit on its own.
+//! - `copyup-write <path> <delay-ms>` (Phase 9 Task 15's `kestreld`
+//!   copy-up scanner test): writes a fixed, known byte string to `<path>`
+//!   (intended to be a path that already exists in the container's LOWER
+//!   overlay layer, so this first write is a real overlayfs copy-up),
+//!   sleeps `<delay-ms>` milliseconds, then writes a second, different
+//!   fixed byte string to the SAME `<path>` (a plain rewrite of an
+//!   already-copied-up file — no NEW copy-up, since the path already
+//!   exists in the upperdir), then sleeps a further 5 seconds so a real
+//!   test has ample time to poll for (or rule out) events after each
+//!   write before this process exits.
+//! - `trigger-personality` (Phase 9 Task 16's `kestreld` seccomp-notify
+//!   end-to-end test): calls `personality(0xffffffff)` — the exact same
+//!   syscall Phase 5's own `kestrel-security/tests/notify.rs`/`seccomp.rs`
+//!   use for their own `SCMP_ACT_NOTIFY` tests, chosen here for the same
+//!   reason (harmless, side-effect-free, and unlikely to already be
+//!   filtered/emulated by anything else in the call path). Blocks until
+//!   the container's real seccomp-notify supervisor chain (`kestrel-init`'s
+//!   `exec_into` -> `SCM_RIGHTS` -> `kestrel-shim`'s `run_notify_loop`)
+//!   responds — libseccomp's default `ENOSYS` response, per `kestrel-
+//!   security::notify::decode_and_respond`. Ignores whatever `personality`
+//!   itself returns (this fixture doesn't assert on it — the REAL
+//!   assertion, that a `seccomp.violation` event reached `kestreld`'s
+//!   event bus with the right syscall name, happens entirely on the test's
+//!   own side), then sleeps briefly so a real test has a comfortable
+//!   window to observe the resulting event before this process exits.
+//!   Confirmed via a real, instrumented reproduction during this task's
+//!   own development that the whole notify round trip (kernel suspends
+//!   the syscall -> `kestrel-shim`'s supervisor receives, decodes, and
+//!   responds -> kernel resumes the caller with `-ENOSYS`) completes in
+//!   roughly **tens of microseconds** once the shim is already blocked
+//!   waiting on `receive()` — comfortably faster than an HTTP-round-trip-
+//!   driven test can react to after `start` returns. The real capstone
+//!   test (`crates/kestreld/src/main.rs`) accounts for this by opening its
+//!   attach WS connection (the only thing that makes `kestreld` a live
+//!   subscriber to the shim's seccomp-event broadcast — see `api::attach`'s
+//!   own doc comment) BEFORE calling `start`, not after.
 //! - anything else (including no argv[1] at all): no-op, exits 0
 //!   (behaves like `/bin/true`).
 
@@ -167,6 +263,108 @@ fn main() {
             // them, happens only once this fixture itself exits below.
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
+        Some("ignore-sigterm") => {
+            let secs_str = args.get(2).expect("ignore-sigterm requires a <secs> argument");
+            let secs: u64 = secs_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse ignore-sigterm secs {secs_str:?}: {e}"));
+            // SAFETY: installing SIG_IGN for SIGTERM via the raw libc
+            // `signal(2)` wrapper. No other signal handling exists in this
+            // process to interact badly with, and nothing between this
+            // call and the plain `thread::sleep` below touches any
+            // non-async-signal-safe state from a handler context (there is
+            // no handler at all — SIG_IGN is a kernel-level disposition,
+            // not a callback) — a plain FFI call with no aliasing/lifetime
+            // hazards.
+            let prev = unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
+            if prev == libc::SIG_ERR {
+                panic!(
+                    "installing SIG_IGN for SIGTERM failed: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+        }
+        Some("copy") => {
+            let src = args.get(2).expect("copy requires a <src> argument");
+            let dst = args.get(3).expect("copy requires a <dst> argument");
+            let content = std::fs::read(src).unwrap_or_else(|e| panic!("read copy src {src}: {e}"));
+            std::fs::write(dst, content).unwrap_or_else(|e| panic!("write copy dst {dst}: {e}"));
+        }
+        Some("echo-stdin") => {
+            // Best-effort: put stdin (fd 0) into raw mode if it's a tty —
+            // see this file's own top-level doc comment for exactly why
+            // (avoiding the kernel's own PTY-echo doubling this fixture's
+            // own echo below, and avoiding ICANON's newline-buffering).
+            // `tcgetattr` failing (ENOTTY, the non-tty/pipe-stdin case) is
+            // expected and fine: just skip straight to the byte-copy loop.
+            //
+            // SAFETY: `term` is a valid, fully-initialized (zeroed, then
+            // populated by a successful `tcgetattr`) `libc::termios` for
+            // the duration of both raw calls; fd 0 is this process's own
+            // stdin, valid for the process's entire lifetime.
+            unsafe {
+                let mut term: libc::termios = std::mem::zeroed();
+                if libc::tcgetattr(0, &mut term) == 0 {
+                    libc::cfmakeraw(&mut term);
+                    libc::tcsetattr(0, libc::TCSANOW, &term);
+                }
+            }
+            use std::io::{Read, Write};
+            let mut stdin = std::io::stdin();
+            let mut stdout = std::io::stdout();
+            let mut buf = [0u8; 4096];
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        if stdout.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                        let _ = stdout.flush();
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+        Some("alloc-hold") => {
+            let mib_str = args.get(2).expect("alloc-hold requires a <mib> argument");
+            let mib: usize = mib_str.parse().unwrap_or_else(|e| panic!("parse alloc-hold mib {mib_str:?}: {e}"));
+            const ONE_MIB: usize = 1024 * 1024;
+            const STEP_DELAY: std::time::Duration = std::time::Duration::from_millis(8);
+            // Grown incrementally (not one big `vec![0xAB; mib * ONE_MIB]`)
+            // specifically so each step's real page-fault/reclaim cost is
+            // spread out over wall-clock time via the delay below, giving a
+            // concurrent poller a real chance to observe the climb — see
+            // this file's own top-level doc comment for the full
+            // reasoning (both on why non-zero bytes are required at all,
+            // and why incremental+delayed rather than one big allocation).
+            let mut v: Vec<u8> = Vec::new();
+            for _ in 0..mib {
+                v.extend(std::iter::repeat_n(0xABu8, ONE_MIB));
+                std::hint::black_box(&v);
+                std::thread::sleep(STEP_DELAY);
+            }
+            std::hint::black_box(&v);
+            // Not OOM-killed along the way (e.g. `<mib>` didn't actually
+            // exceed the caller's memory.max) — hold the allocation and
+            // give a real test ample time to observe whatever it's
+            // checking for before this process would otherwise exit.
+            std::thread::sleep(std::time::Duration::from_secs(300));
+        }
+        Some("copyup-write") => {
+            let path = args.get(2).expect("copyup-write requires a <path> argument");
+            let delay_ms_str = args.get(3).expect("copyup-write requires a <delay-ms> argument");
+            let delay_ms: u64 = delay_ms_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse copyup-write delay-ms {delay_ms_str:?}: {e}"));
+            std::fs::write(path, b"first-write-triggers-copy-up")
+                .unwrap_or_else(|e| panic!("write {path} (first write): {e}"));
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            std::fs::write(path, b"second-write-same-path-no-new-copyup")
+                .unwrap_or_else(|e| panic!("write {path} (second write): {e}"));
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
         Some("hook-marker") => {
             let path = args.get(2).expect("hook-marker requires a <file-path> argument");
             let phase = args.get(3).expect("hook-marker requires a <phase-label> argument");
@@ -177,6 +375,10 @@ fn main() {
                 .open(path)
                 .unwrap_or_else(|e| panic!("open hook-marker file {path}: {e}"));
             writeln!(f, "{phase}").unwrap_or_else(|e| panic!("append to hook-marker file {path}: {e}"));
+        }
+        Some("trigger-personality") => {
+            let _ = unsafe { libc::personality(0xffffffff) };
+            std::thread::sleep(std::time::Duration::from_secs(3));
         }
         _ => {}
     }
