@@ -98,6 +98,8 @@ use kestrel_net::modes::{resolve_container_mode, ModeKind};
 use kestrel_net::nat::{add_dnat, enable_forwarding_sysctls, ensure_masquerade, teardown_all};
 use kestrel_net::netns::{create_netns, nsenter, teardown_netns};
 use kestrel_net::veth::attach_veth;
+use kestrel_ns::pin::{pin_namespace, unpin_namespace};
+use kestrel_ns::types::NsType;
 use rtnetlink::packet_route::address::AddressAttribute;
 use rtnetlink::packet_route::link::LinkAttribute;
 use rtnetlink::{Handle, LinkDummy, LinkUnspec};
@@ -779,3 +781,175 @@ async fn test_container_mode_shares_netns() {
 // integration tests would add nothing but a slower, redundant copy of the
 // same assertions. Deliberately skipped per this task's own instruction
 // to check first rather than duplicate.
+
+// ---------------------------------------------------------------------
+// Scenario 9: `container:<id>` mode against BOTH a `Bridge`-mode AND a
+// `None`-mode (the DEFAULT network mode) referenced container -- the real
+// Phase 9 Task 8 review bug: `resolve_container_mode` used to collapse
+// `ModeKind::Bridge` and `ModeKind::None` onto the SAME path shape
+// (`<run_dir>/netns/<id>>`), but they are pinned by two entirely
+// different mechanisms at two entirely different paths:
+//
+//   - `Bridge` mode: THIS crate's own `netns::create_netns`, pinned at
+//     `<run_dir>/netns/<id>>`.
+//   - `None` mode (the default when a container's `network_mode` is
+//     unspecified): `kestrel-ns`'s stage1 creates the namespace and
+//     `kestrel-runtime`'s `create.rs::pin_namespaces` pins it at
+//     `<run_dir>/<id>/ns/net>` -- a path THIS crate never itself writes,
+//     and a mechanism this test therefore hand-rolls below (spawning the
+//     same `netns-helper` binary `create_netns` uses internally, then
+//     pinning its netns at the `pin_namespaces` shape via
+//     `kestrel_ns::pin::pin_namespace` directly) to simulate a real
+//     `None`-mode container without depending on kestrel-runtime as a
+//     test dependency.
+//
+// The Bridge-mode half of this test is a straight regression check --
+// `test_container_mode_shares_netns` (Scenario 7) already proves this
+// works and continues to pass unmodified after the fix. The None-mode
+// half is the actual proof the bug is fixed: before the fix,
+// `resolve_container_mode(run_dir, id_none, ModeKind::None)` returned
+// `<run_dir>/netns/<id_none>>`, a path that was NEVER created for a
+// None-mode container -- `nsenter`-ing it would fail with ENOENT (or, in
+// a worse coincidental case, silently join some unrelated namespace that
+// happened to exist at that path). Both cases are proven with a REAL
+// namespace-identity check, not just "no error": a ping-pong exchange
+// over `127.0.0.1` (loopback is per-namespace, so this only succeeds if
+// both sides are genuinely in the same netns) AND an independent
+// (dev, ino) inode-identity comparison between the resolved path and the
+// original pin.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires root"]
+async fn test_container_mode_resolves_correct_path_for_both_referenced_modes() {
+    common::run_in_isolated_netns(|| async {
+        let tmp = tempfile::tempdir().unwrap();
+        let run_dir = tmp.path();
+
+        // --- Half A: Bridge-mode reference (regression check). ---
+        let id_bridge = "bridgrf1";
+        let pin_bridge = create_netns(run_dir, id_bridge).await.unwrap();
+
+        let resolved_bridge = resolve_container_mode(run_dir, id_bridge, ModeKind::Bridge).unwrap();
+        assert_eq!(
+            resolved_bridge, pin_bridge,
+            "Bridge-mode resolution must be unaffected by the None-mode fix"
+        );
+
+        // --- Half B: None-mode reference (the actual bug fix). ---
+        //
+        // Hand-rolled equivalent of `kestrel-runtime`'s
+        // `create.rs::pin_namespaces` for a lone Net namespace: spawn
+        // `netns-helper` (the same binary `create_netns` uses -- it
+        // unshares CLONE_NEWNET, signals readiness on stdout, then blocks
+        // on stdin) directly, then pin ITS netns at the None-mode shaped
+        // path via `kestrel_ns::pin::pin_namespace` -- deliberately NOT
+        // via `create_netns`, which always pins at the Bridge-mode shape.
+        let id_none = "nonerf1";
+        let helper_path = std::env::var("CARGO_BIN_EXE_netns-helper")
+            .expect("cargo sets CARGO_BIN_EXE_netns-helper for kestrel-net's own integration tests");
+        let mut helper = std::process::Command::new(&helper_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawning netns-helper");
+        let helper_pid = helper.id();
+        {
+            let mut stdout = helper.stdout.take().expect("helper stdout piped");
+            let mut ready = [0u8; 1];
+            stdout.read_exact(&mut ready).expect("reading readiness byte from netns-helper");
+            assert_eq!(ready[0], b'R', "unexpected readiness byte from netns-helper");
+        }
+
+        let none_target = run_dir.join(id_none).join("ns").join("net");
+        std::fs::create_dir_all(none_target.parent().unwrap()).unwrap();
+        pin_namespace(nix::unistd::Pid::from_raw(helper_pid as i32), NsType::Net, &none_target)
+            .expect("pinning netns-helper's netns at the None-mode (pin_namespaces) shaped path");
+
+        // The pin (not the helper process) is what keeps the namespace
+        // alive from here on -- release the helper now, matching
+        // `create_netns`'s own sequencing.
+        if let Some(mut stdin) = helper.stdin.take() {
+            let _ = stdin.write_all(b"x");
+        }
+        let _ = helper.wait();
+
+        let resolved_none = resolve_container_mode(run_dir, id_none, ModeKind::None).unwrap();
+        assert_eq!(
+            resolved_none, none_target,
+            "None-mode resolution must return the real pin_namespaces-style path, <run_dir>/<id>/ns/net"
+        );
+        assert_ne!(
+            resolved_none,
+            run_dir.join("netns").join(id_none),
+            "None-mode resolution must NOT fall back to Bridge-mode's <run_dir>/netns/<id> shape (the bug)"
+        );
+        assert_ne!(
+            resolved_none, resolved_bridge,
+            "the two referenced containers' resolved paths must never collide"
+        );
+
+        // A brand new netns (whether `create_netns`'s own Bridge-mode
+        // path, or this test's hand-rolled `pin_namespaces`-equivalent
+        // one) starts with `lo` DOWN -- `attach_veth` brings it up for
+        // the Bridge case, but nothing has done so here yet, matching
+        // `test_none_mode_only_lo`'s own observation of a fresh netns's
+        // starting state. Must be brought up before anything tries to
+        // connect over `127.0.0.1` inside it.
+        tokio::task::block_in_place(|| {
+            let none_target_for_lo = none_target.clone();
+            nsenter(&none_target_for_lo, || {
+                let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().context("building in-netns runtime")?;
+                rt.block_on(async {
+                    let (connection, inner, _) = rtnetlink::new_connection().context("opening netlink socket inside the None-mode netns")?;
+                    tokio::spawn(connection);
+                    let lo_idx = find_link_index(&inner, "lo").await?.context("lo must exist in a fresh netns")?;
+                    inner.link().set(LinkUnspec::new_with_index(lo_idx).up().build()).execute().await.context("bringing up lo")?;
+                    Ok::<(), anyhow::Error>(())
+                })
+            })
+        })
+        .expect("bringing up lo inside the None-mode netns must succeed");
+
+        // Real namespace-identity proof #1: a listener bound inside the
+        // None-mode container's netns (via the ORIGINAL pin) must be
+        // reachable over `127.0.0.1` via the path `resolve_container_mode`
+        // returns -- loopback is per-namespace, so this only succeeds if
+        // both really are the same netns.
+        let listen_addr: SocketAddr = "127.0.0.1:9600".parse().unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let server = spawn_ping_pong_listener(none_target.clone(), listen_addr, ready_tx);
+        ready_rx.recv_timeout(Duration::from_secs(5)).expect("listener in the None-mode container's netns must become ready");
+
+        let resolved_none_for_client = resolved_none.clone();
+        thread::spawn(move || nsenter(&resolved_none_for_client, move || connect_and_ping_pong(listen_addr)))
+            .join()
+            .expect("client thread panicked")
+            .expect("joining via resolve_container_mode's None-mode-resolved path must reach the real listener");
+
+        let observed_peer = server.join().expect("server thread panicked").expect("server-side exchange must succeed");
+        assert_eq!(
+            observed_peer.ip(),
+            "127.0.0.1".parse::<std::net::IpAddr>().unwrap(),
+            "the connection must arrive over loopback, confirming the resolved path is the SAME netns as the original None-mode pin"
+        );
+
+        // Real namespace-identity proof #2: independent of the functional
+        // ping-pong proof above, the resolved path and the original pin
+        // must reference the literal same nsfs inode -- the same
+        // same-namespace signature `lsns`/`readlink /proc/<pid>/ns/net`
+        // rely on, and immune to any coincidental "some other reachable
+        // service happened to be listening" false-positive the
+        // ping-pong check alone could theoretically be fooled by.
+        use std::os::unix::fs::MetadataExt;
+        let meta_original = std::fs::metadata(&none_target).unwrap();
+        let meta_resolved = std::fs::metadata(&resolved_none).unwrap();
+        assert_eq!(
+            (meta_original.dev(), meta_original.ino()),
+            (meta_resolved.dev(), meta_resolved.ino()),
+            "resolved None-mode path and the original pin must reference the identical nsfs inode"
+        );
+
+        teardown_netns(run_dir, id_bridge).unwrap();
+        unpin_namespace(&none_target).unwrap();
+    })
+    .await;
+}

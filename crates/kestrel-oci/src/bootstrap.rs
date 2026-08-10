@@ -77,6 +77,18 @@ pub struct Bootstrap {
     /// Where kestrel-init should write exit_code/status once the
     /// entrypoint dies.
     pub state_json_path: PathBuf,
+    /// Host path of a `SOCK_STREAM` Unix socket `kestrel-shim` is already
+    /// listening on (`<run_dir>/<id>/seccomp.sock`) that `kestrel-init`'s
+    /// `exec::exec_into` should connect to and hand the seccomp-notify fd
+    /// over via `SCM_RIGHTS`, immediately before `execve`. Set by
+    /// `kestrel-runtime`'s `create.rs::build_bootstrap` only when the
+    /// process's seccomp profile genuinely uses `SCMP_ACT_NOTIFY`
+    /// somewhere (mirroring `install_seccomp`'s own `uses_notify` check) —
+    /// `None` otherwise, in which case `exec_into` never attempts the
+    /// connect at all (nothing to send: `apply_all`/`install_seccomp`
+    /// itself returns `None` for such a profile). Phase 9 Task 16 / design
+    /// doc §7.
+    pub seccomp_notify_sink: Option<PathBuf>,
 }
 
 /// Sends `bootstrap` as a length-prefixed JSON message over `fd`. Called
@@ -149,6 +161,7 @@ mod tests {
             fifo_host_path: "/run/kestrel/abc123/exec.fifo".into(),
             fifo_container_path: "/exec.fifo".into(),
             state_json_path: "/run/kestrel/abc123/state.json".into(),
+            seccomp_notify_sink: None,
         }
     }
 
@@ -186,6 +199,30 @@ mod tests {
         let mut sent = sample_bootstrap();
         sent.capabilities = Some(LinuxCapabilities::default());
         sent.seccomp = Some(LinuxSeccomp::default());
+
+        send_bootstrap(a.into_raw_fd(), &sent).expect("send_bootstrap");
+        let received = recv_bootstrap(b.into_raw_fd()).expect("recv_bootstrap");
+
+        assert_eq!(received, sent);
+    }
+
+    /// Phase 9 Task 16: `seccomp_notify_sink` is `Option<PathBuf>`, additive
+    /// to the existing schema — round-trips `Some(path)` distinctly from
+    /// `sample_bootstrap`'s own default `None`, so a regression that
+    /// dropped/misencoded this one new field wouldn't hide behind the other
+    /// tests' `None` case.
+    #[test]
+    fn test_send_recv_round_trips_with_seccomp_notify_sink_set() {
+        let (a, b) = socketpair(
+            AddressFamily::Unix,
+            SockType::Stream,
+            None,
+            SockFlag::empty(),
+        )
+        .expect("socketpair");
+
+        let mut sent = sample_bootstrap();
+        sent.seccomp_notify_sink = Some(PathBuf::from("/run/kestrel/abc123/seccomp.sock"));
 
         send_bootstrap(a.into_raw_fd(), &sent).expect("send_bootstrap");
         let received = recv_bootstrap(b.into_raw_fd()).expect("recv_bootstrap");

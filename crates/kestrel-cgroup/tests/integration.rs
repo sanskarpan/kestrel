@@ -367,6 +367,58 @@ fn test_pids_limit() {
 
 #[test]
 #[ignore = "requires root"]
+fn test_io_stat_reports_real_write_activity() {
+    let m = test_manager("kestrel-test-io-stat");
+    m.create().expect("create");
+
+    // Same self-placement-before-work pattern as test_memory_limit_ooms/
+    // test_cpu_throttle/test_pids_limit above, for the same reason: any
+    // separately-forked child (e.g. via Command::spawn + a later
+    // add_process()) races the exec and can end up doing its I/O in the
+    // parent cgroup instead of the leaf, making `io.stat` never reflect it.
+    let out_path = std::env::temp_dir().join("kestrel-io-stat-test.out");
+    let out_path_child = out_path.clone();
+    match unsafe { nix::unistd::fork() }.expect("fork") {
+        nix::unistd::ForkResult::Child => {
+            std::fs::write(m.path.join("cgroup.procs"), std::process::id().to_string())
+                .expect("child self-placement into cgroup.procs");
+            // Write a few MiB with real fsync so the kernel actually issues
+            // block I/O attributed to this cgroup, not just a page-cache
+            // write that might stay buffered.
+            use std::io::Write;
+            let mut f = std::fs::File::create(&out_path_child).expect("create out file");
+            let buf = vec![0xABu8; 1024 * 1024];
+            for _ in 0..4 {
+                f.write_all(&buf).expect("write");
+            }
+            f.sync_all().expect("fsync");
+            unsafe { libc::_exit(0) };
+        }
+        nix::unistd::ForkResult::Parent { child } => {
+            let status = nix::sys::wait::waitpid(child, None).expect("waitpid");
+            assert_eq!(
+                status,
+                nix::sys::wait::WaitStatus::Exited(child, 0),
+                "io-generating child did not exit cleanly: {status:?}"
+            );
+        }
+    }
+
+    let stats = m.io_stat().expect("io_stat");
+    eprintln!("test_io_stat_reports_real_write_activity: observed io.stat = {stats:?}");
+
+    m.kill_all().ok();
+    m.destroy().ok();
+    let _ = std::fs::remove_file(&out_path);
+
+    assert!(
+        stats.iter().any(|d| d.wbytes > 0),
+        "expected at least one device to show nonzero wbytes after real writes, got {stats:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires root"]
 fn test_clone_into_cgroup_no_window() {
     // With fork()-then-write-cgroup.procs there is a window where the
     // child runs unconstrained; a memory bomb on line 1 could escape

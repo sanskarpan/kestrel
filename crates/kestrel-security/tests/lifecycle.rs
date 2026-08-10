@@ -148,7 +148,7 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
         if write_raw != libc::STDOUT_FILENO {
             let _ = nix::unistd::close(write_raw);
         }
-        let _ = exec_into(&process, Some(&seccomp));
+        let _ = exec_into(&process, Some(&seccomp), None);
         unreachable!("exec_into only returns on failure");
     });
 

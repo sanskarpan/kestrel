@@ -5,3 +5,134 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "net", "fs", "io-util", "signal", "sync", "time"] }
+# Plan called for axum 0.7 ("axum's own repo has a #[cfg(unix)] compile-test
+# for exactly this"), but the resolved 0.7.9 (verified via `cargo add
+# --dry-run` inside the VM, then by reading its vendored src/serve.rs) only
+# exposes `axum::serve(tcp_listener: TcpListener, ...)` — no generic
+# Listener trait, no UnixListener impl, so it cannot serve a UnixListener at
+# all. axum 0.8 introduced `axum::serve::Listener` (src/serve/listener.rs)
+# with a `#[cfg(unix)] impl Listener for tokio::net::UnixListener`, which is
+# what Step 3's dual-listener `try_join!` actually needs. Bumped to 0.8.
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+# "term" (Task 10): gates `nix::pty::openpty`, needed for `POST
+# /containers/:id/exec`'s tty case — kestreld allocates its own PTY for a
+# one-off exec session, a small, deliberately-scoped duplicate of
+# `kestrel-shim`'s own `io::allocate` PTY branch (see `api/containers.rs`'s
+# `allocate_pty` doc comment for why this is a duplicate, not a shared dep).
+nix = { workspace = true, features = ["process", "signal", "fs", "user", "term"] }
+libc.workspace = true
+# Task 10: `WebSocket` (axum's ws extractor) implements `futures_util::
+# Stream`/`Sink` directly, not tokio's own stream/sink traits — `.split()`/
+# `SinkExt::send`/`StreamExt::next` on it need this crate's trait impls in
+# scope. Already a dependency elsewhere in this workspace (`kestrel-image`,
+# `kestrel-net`), same version.
+futures-util = "0.3"
+kestrel-oci = { path = "../kestrel-oci" }
+# Leak-sweep-only deps (Task 7): cgroup/namespace-pin cleanup on startup.
+# `kestreld` never links `kestrel-runtime` as a library (see lib.rs's own
+# doc comment) — these are lower-level crates `kestrel-runtime` itself
+# also depends on directly, not a shortcut around that rule.
+kestrel-cgroup = { path = "../kestrel-cgroup" }
+kestrel-ns = { path = "../kestrel-ns" }
+# Pulled in specifically for `kestrel_net::netns::teardown_netns`, used by
+# the same leak sweep — Task 8 adds a second real use, `netns::create_netns`/
+# `modes::resolve_container_mode`, for bridge-mode bundle materialization.
+kestrel-net = { path = "../kestrel-net" }
+# Task 8: resolving an `image` reference to already-pulled (or freshly
+# pulled) layer chain-ids for bundle materialization (`bundle.rs`).
+kestrel-image = { path = "../kestrel-image" }
+# Task 8: `kestrel_rootfs::snapshot::{ContentStore-adjacent} LayerStore`,
+# same content root `kestrel-runtime`'s own `create.rs` fast path reads
+# (`LayerStore::new(data_dir)`) — needed here so `pull_image_with_client`
+# has somewhere to extract layers into ahead of `create()` ever running.
+kestrel-rootfs = { path = "../kestrel-rootfs" }
+# Container id generation (`POST /containers`, Task 8 Step 3). No existing
+# id-generation precedent elsewhere in this workspace (`kestrel-runtime`'s
+# own CLI/tests always take an id as an explicit argument) — plain v4 UUIDs
+# are the simplest collision-safe choice for a daemon minting fresh ids.
+uuid = { version = "1", features = ["v4"] }
+# Task 12: `WS /containers/:id/attach` + `POST /containers/:id/resize` are a
+# direct client of `kestrel-shim`'s own `attach.sock` wire protocol —
+# `framing::{Frame, read_frame, write_frame}`, exactly the module that
+# crate's own `lib.rs` doc comment already calls out as "kestreld's future
+# WS bridge use". This is the one sibling-crate library dependency this
+# crate DOES take (unlike `kestrel-runtime`, which is always fork+exec'd,
+# never linked — see `lib.rs`'s own doc comment): the wire framing is a
+# shared protocol both processes must agree on byte-for-byte, so importing
+# the same `Frame` enum/`read_frame`/`write_frame` functions rather than
+# hand-duplicating them here is the whole point of Task 2 having put them
+# in this crate's own `lib.rs`-exposed `framing` module in the first place.
+kestrel-shim = { path = "../kestrel-shim" }
+# Task 17: bridge-mode network attachment (`network.rs`) — `Ipv4Network`
+# for parsing `config.network.subnet`, matching `kestrel-net`'s own pinned
+# version (its `Cargo.toml`) so both crates agree on the same type.
+ipnetwork = "0.21"
+# Task 17: `rtnetlink::Handle`/`new_connection` — `kestrel-net`'s
+# `ensure_bridge`/`attach_veth`/`bridge::find_link_index` all take a
+# `&Handle` the CALLER owns (kestrel-net deliberately has no netlink
+# connection of its own to manage), so `kestreld` needs this dependency
+# directly to construct one. Same pinned version as `kestrel-net`'s own
+# `Cargo.toml`.
+rtnetlink = "0.21"
+
+# `[[bin]]` fixture used only by this crate's own root-gated tests (Task
+# 7's `recover_registry` test): a stand-in "kestrel-init" that
+# `kestrel_runtime::create::create`'s `child_action` execs into so a real
+# container can be created without needing the real, statically-linked
+# `kestrel-init`. Mirrors `kestrel-runtime`'s own `fixture-stub-init`
+# precedent (`crates/kestrel-runtime/Cargo.toml`) verbatim, including its
+# `tests/fixtures/` source location convention.
+[[bin]]
+name = "kestreld-fixture-stub-init"
+path = "tests/fixtures/stub_init.rs"
+
+[dev-dependencies]
+tempfile = "3"
+# TEST-ONLY: `kestreld` production code never depends on `kestrel-runtime`
+# as a library (it always fork+execs it — see lib.rs's own doc comment).
+# This dev-only entry exists purely so this crate's own root-gated tests
+# can create a real container directly via `kestrel_runtime::create::create`
+# to exercise `recover_registry` end to end, reusing the project's
+# established test-fixture pattern (`crates/kestrel-runtime/tests/
+# create_pins_namespaces.rs`) rather than re-implementing it.
+kestrel-runtime = { path = "../kestrel-runtime" }
+# TEST-ONLY (Task 8): drives the real `axum::Router` built by
+# `build_router` end to end (`tower::ServiceExt::oneshot`) instead of only
+# calling the handler function directly, so the tests genuinely exercise
+# the route wired into `main.rs`, not just the handler in isolation.
+# Already present transitively via `axum`'s own dependency graph, so this
+# adds no new heavy compilation.
+tower = { version = "0.5", features = ["util"] }
+# TEST-ONLY (Task 10): a real WS CLIENT to drive `WS /containers/:id/exec`
+# end to end — `tower::ServiceExt::oneshot` above can't exercise a genuine
+# WS upgrade (there's no real hyper connection to upgrade), so these tests
+# bind a real `TcpListener` and connect with an actual WS client instead.
+# Version pinned to match what's already resolved in this workspace's own
+# `Cargo.lock` (axum's own `ws` feature already depends on
+# `tokio-tungstenite` 0.29 internally) — not a new, second copy.
+tokio-tungstenite = "0.29"
+# TEST-ONLY (Task 11): reads the `follow=true` SSE response body as a
+# stream of frames (`BodyExt::frame`) with a bounded per-frame timeout, so
+# a test can prove new lines are delivered live rather than only checking
+# the historical set. `axum::body::Body` already implements `http_body::
+# Body` internally; this crate (0.1.4, already resolved in this
+# workspace's `Cargo.lock` transitively via axum/hyper) is just the
+# extension-trait crate providing `.frame()` — no new, second HTTP body
+# implementation is introduced.
+http-body-util = "0.1"
+# TEST-ONLY (Task 21): the graceful-shutdown test spawns a REAL, separate
+# `kestreld` OS subprocess (not `build_router`'s in-process `oneshot`,
+# which can't be the target of a genuine `SIGTERM` to kestreld's own pid)
+# and needs a real HTTP client to talk to it over its real TCP listener.
+# Same version/feature pins as `kestrel-image`'s own `reqwest` dependency —
+# already resolved in this workspace's `Cargo.lock`, so this adds no new
+# crate version, only a new (dev-only) edge to an already-resolved one.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
