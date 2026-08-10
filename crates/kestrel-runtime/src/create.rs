@@ -37,7 +37,7 @@ use kestrel_ns::pin::{pin_namespace, unpin_namespace};
 use kestrel_ns::stages::run_stages;
 use kestrel_ns::types::{IdMapping, NamespacePlan, NsType};
 use kestrel_oci::bootstrap::{Bootstrap, HookSet, MountPlan};
-use kestrel_oci::runtime::{Hook, LinuxNamespaceType};
+use kestrel_oci::runtime::{Hook, LinuxNamespaceType, LinuxSeccomp, LinuxSeccompAction};
 use kestrel_oci::state::{State, Status};
 
 use crate::bundle::Bundle;
@@ -80,6 +80,7 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     let plan = build_namespace_plan(bundle)?;
     let cgroup = kestrel_cgroup::manager::CgroupManager::new(data_dir.join("cgroups"), id)?;
     cgroup.create()?;
+    apply_resource_limits(&cgroup, bundle)?;
 
     // `run_stages`' `CLONE_INTO_CGROUP` fast path needs an open fd on the
     // cgroup's own directory (not a "dir_fd()" method — `CgroupManager`
@@ -135,7 +136,7 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     )
     .context("setting FD_CLOEXEC on host_end")?;
 
-    let bootstrap = build_bootstrap(id, bundle, mount_plan, &fifo_host_path, &state_json_path)?;
+    let bootstrap = build_bootstrap(id, bundle, mount_plan, &fifo_host_path, &state_json_path, run_dir)?;
     let init_end_raw = init_end.as_raw_fd();
     let host_end_raw = host_end.as_raw_fd();
 
@@ -218,15 +219,141 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     Ok(())
 }
 
+/// Gap-fix (found during Phase 9 Task 13's review): applies the bundle's
+/// `linux.resources` (CPU shares/quota/cpuset, memory limit/reservation/
+/// swap, pids limit, IO weight/throttle, hugetlb) — if present — to the
+/// leaf cgroup `create()` just made, via the real, already-implemented
+/// `kestrel_cgroup::resources::{apply_cpu,apply_memory,apply_pids,apply_io,
+/// apply_hugetlb}` methods. Before this fix, `create()` created the cgroup
+/// and enabled controllers but never read `linux.resources` back out of
+/// the bundle at all — every resource limit configured in a bundle's
+/// `config.json` (including `kestreld`'s own `POST /containers`
+/// `memory_bytes`/`pids_limit` fields, which `kestreld::bundle` correctly
+/// writes into `config.json`) was silently non-functional.
+///
+/// # Ordering: called here, BEFORE the container's process joins the
+/// cgroup
+///
+/// This runs right after `cgroup.create()` and well before `run_stages`
+/// (below) clones the container's `kestrel-init` process into the cgroup
+/// via the `CLONE_INTO_CGROUP` fast path. cgroup v2 accepts writes to
+/// `memory.max`/`cpu.max`/`pids.max`/etc. against an empty leaf cgroup with
+/// zero processes in it — there is no rule requiring a cgroup to be
+/// non-empty before its controller files can be configured. Applying limits
+/// to the still-empty cgroup means they are already in effect the INSTANT
+/// the process is cloned into it: no window, however small, where the
+/// container's init process (or anything it execs into) runs unconstrained.
+/// The alternative ordering — clone the process in first, apply limits
+/// after — would leave exactly that window open for no benefit.
+///
+/// # No-op for the common case
+///
+/// A bundle with no `linux.resources` block at all short-circuits via the
+/// `let-else` below. A `linux.resources` block whose sub-fields
+/// (`cpu`/`memory`/`pids`/`blockIO`/`hugepageLimits`) are all absent is
+/// likewise a no-op: every one of `apply_cpu`/`apply_memory`/`apply_pids`/
+/// `apply_io`/`apply_hugetlb` already treats an absent sub-field as
+/// "nothing to configure, write nothing" (see each function's own doc
+/// comment in `kestrel_cgroup::resources`) — this function does not need to
+/// (and does not) duplicate that presence-checking itself. So a container
+/// that requests no resource limits behaves identically to before this fix.
+fn apply_resource_limits(cgroup: &kestrel_cgroup::manager::CgroupManager, bundle: &Bundle) -> Result<()> {
+    let Some(resources) = bundle
+        .spec
+        .spec
+        .linux()
+        .as_ref()
+        .and_then(|l| l.resources().as_ref())
+    else {
+        return Ok(());
+    };
+
+    cgroup
+        .apply_cpu(resources)
+        .context("applying cpu resource limits to the container's cgroup")?;
+    cgroup
+        .apply_memory(resources)
+        .context("applying memory resource limits to the container's cgroup")?;
+    cgroup
+        .apply_pids(resources)
+        .context("applying pids resource limit to the container's cgroup")?;
+    cgroup
+        .apply_io(resources)
+        .context("applying io resource limits to the container's cgroup")?;
+    cgroup
+        .apply_hugetlb(resources)
+        .context("applying hugetlb resource limits to the container's cgroup")?;
+    Ok(())
+}
+
+/// Annotation key `kestreld` writes into a bundle's `config.json` before
+/// calling `create()` for a container built from already-pulled,
+/// content-addressed image layers (Phase 9's whole reason for existing —
+/// see docs/superpowers/specs/2026-08-09-phase9-daemon-design.md §4b).
+/// Its value is a comma-joined, bottom-to-top list of layer chain-ids that
+/// already exist in the `LayerStore` rooted at `data_dir`.
+const LOWER_CHAIN_IDS_ANNOTATION: &str = "kestrel.lowerChainIds";
+
 /// Resolution #1: a bundle's `root.path()` directory becomes a single
 /// synthetic overlay layer, keyed by a deterministic-per-container
 /// (not content-hashed) chain-id. Returns the `MountPlan` `kestrel-init`
 /// needs to mount it.
+///
+/// Gap-fill (Phase 9 Task 3): checked FIRST, before any of the above, is
+/// a fast path for bundles `kestreld` materializes directly from
+/// already-pulled layers. `Snapshotter::prepare_snapshot` (called later,
+/// inside `kestrel-init`, from `MountPlan.lower_chain_ids`) already
+/// accepts an arbitrary multi-entry chain-id list with no length
+/// restriction — the only real gap was HERE: this function unconditionally
+/// treated the bundle as exactly one new synthetic layer via a full
+/// recursive copy, with no way to say "reuse these chain-ids as-is". When
+/// the `kestrel.lowerChainIds` annotation is present, this returns
+/// immediately with a `MountPlan` built directly from it — no
+/// `LayerStore::ensure_layer`, no copy, and critically, no read of
+/// `bundle.path.join(root.path())` at all (that whole path, including the
+/// `root()` lookup itself, is only reached in the fallback below), so a
+/// `kestreld`-materialized bundle need not even have a `rootfs/` directory
+/// on disk.
 fn stage_bundle_rootfs_as_synthetic_layer(
     id: &str,
     bundle: &Bundle,
     data_dir: &Path,
 ) -> Result<MountPlan> {
+    // `Spec::annotations()` -> `&Option<HashMap<String, String>>`
+    // (confirmed against the vendored oci-spec-0.10.0 source: `Spec`
+    // carries `#[getset(get = "pub")]`, and its `annotations` field is
+    // `Option<HashMap<String, String>>`). This value survives
+    // `bundle::load` completely unfiltered — `RawSpec`'s
+    // `#[serde(flatten)] spec: Spec` (crates/kestrel-oci/src/raw.rs)
+    // deserializes it like any other real `Spec` field, no special-casing
+    // needed.
+    if let Some(annotations) = bundle.spec.spec.annotations() {
+        if let Some(csv) = annotations.get(LOWER_CHAIN_IDS_ANNOTATION) {
+            // Checked on `csv` itself, BEFORE splitting: `str::split`
+            // always yields at least one element for any input (including
+            // `""`, which splits to `[""]`), so a post-split
+            // `!lower_chain_ids.is_empty()` check could never actually
+            // trigger — this is the check that does.
+            anyhow::ensure!(
+                !csv.trim().is_empty(),
+                "{LOWER_CHAIN_IDS_ANNOTATION} annotation is present but empty"
+            );
+            let lower_chain_ids: Vec<String> = csv.split(',').map(str::to_string).collect();
+            return Ok(MountPlan {
+                lower_chain_ids,
+                // Hardcoded `false`, matching the fallback synthetic-layer
+                // branch below exactly — no regression either way versus
+                // today's behavior. `kestreld` (this phase) has no
+                // rootless story yet (see design doc §14, "out of scope
+                // for this phase"), so this is deliberately NOT wired to
+                // the annotation any further here; whoever adds rootless
+                // support later will need a second annotation (or to
+                // extend this one) to drive this field for real.
+                rootless: false,
+            });
+        }
+    }
+
     let root = bundle
         .spec
         .spec
@@ -295,22 +422,24 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 
 /// Resolution #2: translate `bundle.spec.spec.linux()`'s namespaces +
 /// id mappings into a real `NamespacePlan`. Namespaces with a non-`None`
-/// `.path()` (join-an-existing-namespace, a `container:<id>`-equivalent
-/// case for non-network namespaces) are skipped — this is `create`'s OWN
-/// namespace plan, describing namespaces THIS container creates fresh,
-/// not namespaces it joins. If bundles in practice commonly set a
-/// namespace `path`, that's a real, separate gap — joining an existing
-/// namespace at create-time is a materially different feature from what
-/// this function builds, not solved here.
+/// `.path()` (join-an-existing-namespace, e.g. a `container:<id>`- or
+/// bridge-mode-netns-equivalent case) are routed into `plan.join` rather
+/// than `plan.create` — `kestrel_ns::stages::stage1` performs the actual
+/// `setns()` for each of those (gap-fill, Phase 9 Task 4; see
+/// `docs/superpowers/specs/2026-08-09-phase9-daemon-design.md` §4a for the
+/// full rationale, including why the join must happen before any
+/// `unshare()`, in particular before `CLONE_NEWUSER`).
 pub(crate) fn build_namespace_plan(bundle: &Bundle) -> Result<NamespacePlan> {
     let mut create = Vec::new();
+    let mut join = Vec::new();
     let mut uid_maps = Vec::new();
     let mut gid_maps = Vec::new();
 
     if let Some(linux) = bundle.spec.spec.linux() {
         if let Some(namespaces) = linux.namespaces() {
             for ns in namespaces {
-                if ns.path().is_some() {
+                if let Some(path) = ns.path() {
+                    join.push((map_ns_type(ns.typ()), path.clone()));
                     continue;
                 }
                 create.push(map_ns_type(ns.typ()));
@@ -326,6 +455,7 @@ pub(crate) fn build_namespace_plan(bundle: &Bundle) -> Result<NamespacePlan> {
 
     Ok(NamespacePlan {
         create,
+        join,
         uid_maps,
         gid_maps,
     })
@@ -504,6 +634,7 @@ fn build_bootstrap(
     mount_plan: MountPlan,
     fifo_host_path: &Path,
     state_json_path: &Path,
+    run_dir: &Path,
 ) -> Result<Bootstrap> {
     let spec = &bundle.spec.spec;
 
@@ -522,6 +653,21 @@ fn build_bootstrap(
     let start_container = hooks
         .and_then(|h| h.start_container().clone())
         .unwrap_or_default();
+
+    // Phase 9 Task 16: only set when the profile genuinely uses
+    // `SCMP_ACT_NOTIFY` somewhere — mirrors `kestrel_security::seccomp::
+    // install_seccomp`'s own `uses_notify` check exactly (default action OR
+    // any per-syscall rule action), duplicated here (not imported) because
+    // this check needs no `libseccomp` translation at all, just the raw
+    // `kestrel_oci::runtime::LinuxSeccompAction` values already on hand.
+    // `<run_dir>/<id>/seccomp.sock` matches `kestrel-shim`'s own listener
+    // path (design doc §7) exactly — `kestrel-shim` binds it unconditionally
+    // right after `create` succeeds, well before `start` (a separate, later
+    // call) ever triggers this fd-send, so there's no ordering race.
+    let seccomp_notify_sink = seccomp
+        .as_ref()
+        .filter(|s| uses_seccomp_notify(s))
+        .map(|_| run_dir.join(id).join("seccomp.sock"));
 
     Ok(Bootstrap {
         container_id: id.to_string(),
@@ -546,7 +692,25 @@ fn build_bootstrap(
         fifo_host_path: fifo_host_path.to_path_buf(),
         fifo_container_path: PathBuf::from(FIFO_CONTAINER_PATH),
         state_json_path: state_json_path.to_path_buf(),
+        seccomp_notify_sink,
     })
+}
+
+/// Whether `profile` uses `SCMP_ACT_NOTIFY` anywhere — either as the
+/// filter's default action or on any individual syscall rule. Mirrors
+/// `kestrel_security::seccomp::install_seccomp`'s own `uses_notify`
+/// computation exactly (that function's own doc comment: "Returns
+/// `Some(fd)` if the profile uses SCMP_ACT_NOTIFY anywhere"), so
+/// `seccomp_notify_sink` is set here if and only if `install_seccomp`
+/// (called later, inside the container, by `kestrel-init`'s `exec_into`)
+/// will actually return `Some(fd)` for this same profile.
+fn uses_seccomp_notify(profile: &LinuxSeccomp) -> bool {
+    matches!(profile.default_action(), LinuxSeccompAction::ScmpActNotify)
+        || profile
+            .syscalls()
+            .iter()
+            .flatten()
+            .any(|rule| matches!(rule.action(), LinuxSeccompAction::ScmpActNotify))
 }
 
 /// Resolution #4: the go-ahead is a trivial 1-byte protocol over the SAME
@@ -737,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_namespace_plan_skips_namespaces_with_a_join_path() {
+    fn test_build_namespace_plan_routes_join_path_namespaces_into_plan_join() {
         let mut spec = minimal_spec();
 
         let fresh_pid_ns = LinuxNamespaceBuilder::default()
@@ -759,11 +923,15 @@ mod tests {
         let bundle = bundle_with_spec(spec);
         let plan = build_namespace_plan(&bundle).unwrap();
 
-        // Only the namespace WITHOUT a `path` (create fresh) is in the
-        // plan; the joined network namespace is skipped — see this
-        // function's own doc comment for why joining is out of scope
-        // here.
+        // The namespace WITHOUT a `path` (create fresh) goes into
+        // `plan.create`; the one WITH a `path` (join an existing
+        // namespace) is routed into `plan.join` instead of being
+        // silently dropped — see this function's own doc comment.
         assert_eq!(plan.create, vec![NsType::Pid]);
+        assert_eq!(
+            plan.join,
+            vec![(NsType::Net, PathBuf::from("/var/run/netns/existing"))]
+        );
     }
 
     #[test]
@@ -796,6 +964,95 @@ mod tests {
     fn test_bundle_create_runtime_hooks_extracts_and_defaults_to_empty() {
         let bundle = bundle_with_spec(minimal_spec());
         assert!(bundle_create_runtime_hooks(&bundle).is_empty());
+    }
+
+    #[test]
+    fn test_stage_bundle_rootfs_fast_path_uses_annotation_without_touching_bundle_path() {
+        let mut spec = minimal_spec();
+        let mut annotations = std::collections::HashMap::new();
+        annotations.insert(
+            LOWER_CHAIN_IDS_ANNOTATION.to_string(),
+            "sha256:aaa,sha256:bbb".to_string(),
+        );
+        spec.set_annotations(Some(annotations));
+
+        // `path` deliberately points at a directory that does not exist at
+        // all — the real proof that the fast path never reads
+        // `bundle.path.join(root.path())`: if it did, this would fail with
+        // an I/O error instead of returning `Ok`.
+        let bundle = Bundle {
+            path: PathBuf::from("/nonexistent/bundle-for-fast-path-unit-test"),
+            spec: RawSpec {
+                spec,
+                extra: serde_json::Map::new(),
+            },
+        };
+        let data_dir = tempfile::tempdir().unwrap();
+
+        let plan = stage_bundle_rootfs_as_synthetic_layer("fast-path-id", &bundle, data_dir.path())
+            .expect("fast path must succeed without ever touching bundle.path");
+
+        assert_eq!(
+            plan.lower_chain_ids,
+            vec!["sha256:aaa".to_string(), "sha256:bbb".to_string()]
+        );
+        assert!(
+            !plan.rootless,
+            "rootless is deliberately hardcoded false, matching the fallback branch"
+        );
+    }
+
+    #[test]
+    fn test_stage_bundle_rootfs_fast_path_rejects_empty_annotation() {
+        let mut spec = minimal_spec();
+        let mut annotations = std::collections::HashMap::new();
+        annotations.insert(LOWER_CHAIN_IDS_ANNOTATION.to_string(), "".to_string());
+        spec.set_annotations(Some(annotations));
+        let bundle = bundle_with_spec(spec);
+        let data_dir = tempfile::tempdir().unwrap();
+
+        let err = stage_bundle_rootfs_as_synthetic_layer("id", &bundle, data_dir.path())
+            .expect_err("an empty annotation value must be rejected, not silently treated as zero layers");
+        assert!(
+            format!("{err:#}").contains("annotation is present but empty"),
+            "unexpected error message: {err:#}"
+        );
+    }
+
+    #[test]
+    fn test_stage_bundle_rootfs_falls_back_to_synthetic_copy_without_annotation() {
+        let bundle_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(bundle_dir.path().join("rootfs")).unwrap();
+        std::fs::write(bundle_dir.path().join("rootfs").join("marker"), b"hi").unwrap();
+
+        // No annotations set at all — must take the pre-existing
+        // synthetic-single-layer copy path exactly as before this task.
+        let spec = minimal_spec();
+        let bundle = Bundle {
+            path: bundle_dir.path().to_path_buf(),
+            spec: RawSpec {
+                spec,
+                extra: serde_json::Map::new(),
+            },
+        };
+        let data_dir = tempfile::tempdir().unwrap();
+
+        let plan = stage_bundle_rootfs_as_synthetic_layer("fallback-id", &bundle, data_dir.path())
+            .expect("fallback synthetic-layer path must still work");
+
+        assert_eq!(plan.lower_chain_ids, vec!["bundle-fallback-id".to_string()]);
+        assert!(!plan.rootless);
+        // `LayerStore::diff_dir` (not a hand-built path): the on-disk
+        // directory name is `sanitize_chain_id`-sanitized (e.g. `-` ->
+        // `_`), a private implementation detail of `kestrel_rootfs` that
+        // this test must not re-derive by hand.
+        let copied = kestrel_rootfs::snapshot::LayerStore::new(data_dir.path().to_path_buf())
+            .diff_dir("bundle-fallback-id")
+            .join("marker");
+        assert!(
+            copied.exists(),
+            "fallback path must still copy the bundle rootfs into the layer diff dir"
+        );
     }
 
     #[test]
@@ -849,6 +1106,7 @@ mod tests {
 
         let plan = NamespacePlan {
             create: vec![NsType::Pid, NsType::Net, NsType::Ipc],
+            join: Vec::new(),
             uid_maps: Vec::new(),
             gid_maps: Vec::new(),
         };
