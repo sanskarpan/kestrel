@@ -246,6 +246,35 @@ fn stage1(
     cgroup_fd: Option<RawFd>,
     child_action: impl FnOnce() + 'static,
 ) -> Result<()> {
+    // Join every pre-existing namespace in `plan.join` FIRST — before any
+    // unshare() below, including before unshare(CLONE_NEWUSER). `setns()`
+    // into a namespace owned by the HOST's original user namespace requires
+    // capabilities in that owning user namespace. If we unshared a new user
+    // namespace first (as the `plan.has_user_ns()` block below does), our
+    // capabilities would become relative to that new, unprivileged-from-
+    // the-host's-perspective namespace, and a subsequent `setns()` into a
+    // host-owned namespace (e.g. a netns pinned by a plain host-level
+    // helper process, not created inside any container's fresh user
+    // namespace) would fail with EPERM. At this point in stage1 we still
+    // hold whatever privileges `run_stages` was invoked with (real root,
+    // per this project's rootful-only current scope) — this is the same
+    // "join needs privilege in the target's owning userns" principle
+    // `kestrel_ns::join::join_namespaces`'s own `JOIN_ORDER` doc comment
+    // establishes for the `kestrel exec` call path, applied here for the
+    // CREATE-time path for the first time. Empirically verified (see
+    // `crates/kestrel-ns/tests/join_by_path.rs`,
+    // `test_setns_into_host_owned_ns_succeeds_before_unshare_newuser_fails_after`
+    // and `test_run_stages_join_reaches_pinned_namespace_not_hosts_own`):
+    // setns() into a host-owned namespace succeeds before
+    // unshare(CLONE_NEWUSER) and fails with EPERM after it, confirming the
+    // ordering is load-bearing, not just a theoretical concern.
+    for (ns_type, path) in &plan.join {
+        let f = std::fs::File::open(path)
+            .with_context(|| format!("opening namespace join target {}", path.display()))?;
+        nix::sched::setns(&f, ns_type.clone_flag())
+            .with_context(|| format!("setns into pre-existing {ns_type:?} namespace at {}", path.display()))?;
+    }
+
     // Create the user namespace FIRST and alone. Combining it with the
     // others in one unshare() works, but separating makes the ordering
     // explicit and the failure modes far easier to read.

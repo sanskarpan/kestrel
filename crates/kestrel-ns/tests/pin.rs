@@ -11,6 +11,7 @@ fn test_pin_survives_pid1_exit() {
     run_isolated(|| {
         let plan = NamespacePlan {
             create: vec![NsType::User, NsType::Uts, NsType::Mount],
+            join: vec![],
             uid_maps: vec![IdMapping {
                 container_id: 0,
                 host_id: nix::unistd::getuid().as_raw(),

@@ -64,6 +64,7 @@ fn test_join_order_matters() {
     run_isolated(|| {
         let plan = NamespacePlan {
             create: vec![NsType::User, NsType::Uts],
+            join: vec![],
             uid_maps: vec![IdMapping {
                 container_id: 0,
                 host_id: nix::unistd::getuid().as_raw(),
@@ -114,6 +115,7 @@ fn test_join_namespaces_canonical_order_succeeds() {
     run_isolated(|| {
         let plan = NamespacePlan {
             create: vec![NsType::User, NsType::Uts],
+            join: vec![],
             uid_maps: vec![IdMapping {
                 container_id: 0,
                 host_id: nix::unistd::getuid().as_raw(),

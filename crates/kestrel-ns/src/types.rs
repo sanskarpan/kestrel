@@ -63,6 +63,15 @@ pub struct IdMapping {
 #[derive(Debug, Clone, Default)]
 pub struct NamespacePlan {
     pub create: Vec<NsType>,
+    /// Pre-existing namespaces to `setns()` into (by pinned path) rather
+    /// than create fresh. Joined in `stages::stage1`, as its absolute
+    /// first action, before any `unshare()` call — including before
+    /// `CLONE_NEWUSER` — because `setns()` into a namespace owned by the
+    /// host's original user namespace requires privilege in that owning
+    /// userns, which is only reliably available before this process
+    /// unshares into a new one. See `join::JOIN_ORDER`'s doc comment for
+    /// the same principle applied to the `kestrel exec` call path.
+    pub join: Vec<(NsType, std::path::PathBuf)>,
     pub uid_maps: Vec<IdMapping>,
     pub gid_maps: Vec<IdMapping>,
 }
@@ -129,6 +138,7 @@ mod tests {
     fn test_plan_clone_flags_unions_all_requested() {
         let plan = NamespacePlan {
             create: vec![NsType::User, NsType::Pid, NsType::Mount],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };
@@ -143,11 +153,13 @@ mod tests {
     fn test_plan_has_user_ns() {
         let with = NamespacePlan {
             create: vec![NsType::User],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };
         let without = NamespacePlan {
             create: vec![NsType::Pid],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };
@@ -159,11 +171,13 @@ mod tests {
     fn test_plan_has_pid_ns() {
         let with = NamespacePlan {
             create: vec![NsType::Pid],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };
         let without = NamespacePlan {
             create: vec![NsType::User],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };

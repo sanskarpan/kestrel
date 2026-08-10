@@ -11,6 +11,7 @@ use kestrel_ns::types::{IdMapping, NamespacePlan, NsType};
 fn self_mapped_plan(create: Vec<NsType>) -> NamespacePlan {
     NamespacePlan {
         create,
+        join: vec![],
         uid_maps: vec![IdMapping {
             container_id: 0,
             host_id: nix::unistd::getuid().as_raw(),
@@ -158,6 +159,7 @@ fn test_no_user_namespace_completes_without_userns_handshake() {
     run_isolated(|| {
         let plan = NamespacePlan {
             create: vec![NsType::Pid, NsType::Uts],
+            join: vec![],
             uid_maps: vec![],
             gid_maps: vec![],
         };
