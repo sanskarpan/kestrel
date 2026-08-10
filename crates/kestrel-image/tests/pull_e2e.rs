@@ -142,7 +142,7 @@ fn test_pull_mount_pivot_exec_real_alpine_true() {
         // this whole test's result, observed by run_isolated's own waitpid
         // back in the real, un-forked parent process. Never returns on
         // success.
-        let _ = exec_into(&process, None);
+        let _ = exec_into(&process, None, None);
         unreachable!("exec_into only returns on failure");
     });
 
