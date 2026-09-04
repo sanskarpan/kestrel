@@ -51,6 +51,17 @@ provision:
       # every time the VM reboots.
       printf 'kernel.apparmor_restrict_unprivileged_userns = 0\n' > /etc/sysctl.d/99-kestrel-userns.conf
       sysctl --system
+
+      # Bridge netfilter is required for kestrel-net NAT (MASQUERADE/DNAT) and
+      # for the lifecycle integration tests that exercise it via
+      # enable_forwarding_sysctls -> bridge-nf-call-iptables. On a fresh
+      # Ubuntu 24.04 install the module is present but not auto-loaded until
+      # a bridge is created, so pre-load it and persist across reboots.
+      modprobe br_netfilter || true
+      echo br_netfilter > /etc/modules-load.d/kestrel-br-netfilter.conf
+      # Also ensure the sysctl is set persistently for the bridge path.
+      printf 'net.bridge.bridge-nf-call-iptables = 1\n' > /etc/sysctl.d/99-kestrel-bridge.conf || true
+      sysctl --system || true
   - mode: user
     script: |
       #!/bin/bash

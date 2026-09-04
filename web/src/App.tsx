@@ -6,6 +6,14 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/api/client";
 import { createEventSource } from "@/sse/client";
+import { useAppStore } from "@/store/appStore";
+import { ContainersView } from "@/components/ContainersView";
+import { NamespaceExplorer } from "@/components/NamespaceExplorer";
+import { LayersInspector } from "@/components/LayersInspector";
+import { ResourcesView } from "@/components/ResourcesView";
+import { NetworkTopology } from "@/components/NetworkTopology";
+import { SecurityView } from "@/components/SecurityView";
+import { TerminalView } from "@/components/TerminalView";
 import {
   Boxes,
   Network,
@@ -45,9 +53,9 @@ export default function App() {
   const [view, setView] = useState<View>("containers");
   const [connected, setConnected] = useState<boolean | null>(null);
   const [containers, setContainers] = useState<unknown[] | null>(null);
-  const [events, setEvents] = useState<string[]>([]);
+  const pushEvent = useAppStore((s) => s.pushEvent);
+  const events = useAppStore((s) => s.events);
 
-  // Poll containers + SSE health
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
@@ -65,7 +73,7 @@ export default function App() {
     const id = setInterval(poll, 3000);
     const close = createEventSource(
       api.eventsUrl(),
-      (ev) => setEvents((prev) => [`${ev.type}`, ...prev].slice(0, 30)),
+      (ev) => pushEvent(ev),
       (ok) => setConnected(ok),
     );
     return () => {
@@ -73,11 +81,10 @@ export default function App() {
       clearInterval(id);
       close();
     };
-  }, []);
+  }, [pushEvent]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
@@ -103,7 +110,6 @@ export default function App() {
       </header>
 
       <div className="mx-auto flex max-w-[1400px]">
-        {/* Sidebar */}
         <aside className="hidden w-64 shrink-0 border-r p-3 md:block">
           <nav className="space-y-1">
             {VIEWS.map((v) => {
@@ -153,15 +159,13 @@ export default function App() {
               {events.length === 0 ? (
                 <span className="text-muted-foreground">no events yet</span>
               ) : (
-                events.map((e, i) => <div key={i}>{e}</div>)
+                events.slice(0,30).map((e, i) => <div key={i}>{e.type}</div>)
               )}
             </div>
           </div>
         </aside>
 
-        {/* Main */}
         <main className="flex-1 p-4 md:p-6">
-          {/* Mobile tabs */}
           <div className="mb-4 md:hidden">
             <Tabs value={view} onValueChange={(v) => setView(v as View)}>
               <TabsList className="flex w-full flex-wrap">
@@ -174,86 +178,13 @@ export default function App() {
             </Tabs>
           </div>
 
-          {view === "containers" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h1 className="text-xl font-semibold">Containers</h1>
-                <Badge variant={connected ? "default" : "destructive"}>{connected ? "live" : "offline"}</Badge>
-              </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Coming from kestreld</CardTitle>
-                  <CardDescription>
-                    TanStack Table: id, image, state, CPU%, mem, PIDs, ports. Data from GET /v1/containers + SSE.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {containers === null ? (
-                    <div className="text-sm text-muted-foreground">
-                      {connected === false
-                        ? "Daemon offline — run in Lima VM: limactl shell kestrel → sudo ./target/debug/kestreld"
-                        : "Loading…"}
-                    </div>
-                  ) : containers.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No containers. Try: kestrel run --rm alpine echo hello</div>
-                  ) : (
-                    <pre className="max-h-96 overflow-auto rounded bg-muted p-3 text-xs">
-                      {JSON.stringify(containers, null, 2)}
-                    </pre>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {view === "namespaces" && (
-            <Placeholder
-              title="Namespace Explorer"
-              subtitle="D3 force graph — processes ↔ 8 namespaces. Shared netns converges to one node (pod semantics)."
-              spec="SPEC §4, PROMPT Phase 2"
-              endpoint="GET /containers/:id/namespaces + GET /system/namespaces"
-            />
-          )}
-          {view === "layers" && (
-            <Placeholder
-              title="Layer & Copy-Up Inspector"
-              subtitle="Overlay stack (lowerdir…upper) + copy-up heatmap + amplification ratio."
-              spec="SPEC §6, CHECKLIST Phase 4"
-              endpoint="GET /containers/:id/layers, /copyups — scan_copy_ups()"
-            />
-          )}
-          {view === "resources" && (
-            <Placeholder
-              title="Resource & Pressure"
-              subtitle="CPU vs cpu.max, memory high/max/peak, OOM markers, PSI some/full (Recharts)."
-              spec="SPEC §5.3, PROMPT Phase 3"
-              endpoint="GET /containers/:id/cgroup, /pressure — 1 Hz sampler"
-            />
-          )}
-          {view === "network" && (
-            <Placeholder
-              title="Network Topology"
-              subtitle="D3: bridges, veth pairs (IFLA_LINK), netns, NAT rules."
-              spec="SPEC §11"
-              endpoint="GET /containers/:id/network + GET /system/topology"
-            />
-          )}
-          {view === "security" && (
-            <Placeholder
-              title="Security"
-              subtitle="Capability matrix (5 sets) + seccomp profile + live violation feed."
-              spec="SPEC §8"
-              endpoint="GET /containers/:id/caps, /seccomp + seccomp.violation SSE"
-            />
-          )}
-          {view === "terminal" && (
-            <Placeholder
-              title="Terminal"
-              subtitle="xterm.js over WS /containers/:id/attach + POST /containers/:id/resize."
-              spec="SPEC §13"
-              endpoint="WS /containers/:id/attach, POST /resize"
-            />
-          )}
+          {view === "containers" && <ContainersView />}
+          {view === "namespaces" && <NamespaceExplorer />}
+          {view === "layers" && <LayersInspector />}
+          {view === "resources" && <ResourcesView />}
+          {view === "network" && <NetworkTopology />}
+          {view === "security" && <SecurityView />}
+          {view === "terminal" && <TerminalView />}
 
           <Separator className="my-6" />
           <div className="text-xs text-muted-foreground">
@@ -262,33 +193,6 @@ export default function App() {
             <code>~/Developer/kestrel → ~/kestrel</code>.
           </div>
         </main>
-      </div>
-    </div>
-  );
-}
-
-function Placeholder({ title, subtitle, spec, endpoint }: { title: string; subtitle: string; spec: string; endpoint: string }) {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold">{title}</h1>
-      <p className="text-sm text-muted-foreground">{subtitle}</p>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Spec</CardTitle>
-            <CardDescription>{spec}</CardDescription>
-          </CardHeader>
-          <CardContent className="font-mono text-xs">{endpoint}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Status</CardTitle>
-            <CardDescription>Placeholder — wire to kestreld after VM is up.</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            UI contract matches SPEC §13. Backend already implements these endpoints; frontend only needs D3/Recharts wiring.
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

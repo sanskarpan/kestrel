@@ -8,361 +8,361 @@
 
 ## Phase 0 — Bootstrap & Environment Guard (14 tasks)
 
-- [ ] 🔴 `cargo new --lib` workspace; 12 member crates per SPEC §16
-- [ ] 🔴 Workspace `Cargo.toml`: shared deps `nix`, `libc`, `rustix`, `anyhow`, `thiserror`, `serde`, `serde_json`, `tracing`
-- [ ] 🔴 `kestrel-runtime` deps must **exclude** `tokio` — enforce with a `cargo deny` rule or a test that inspects `cargo tree`
-- [ ] 🔴 `crates/kestrel-oci`: pull in `oci-spec` and re-export; add local extension types
-- [ ] 🔴 Preflight check binary: kernel ≥ 5.11, cgroup2 mounted at `/sys/fs/cgroup`, `overlay` in `/proc/filesystems`, `unprivileged_userns_clone` enabled
-- [ ] 🔴 Preflight also reports which controllers are available in `/sys/fs/cgroup/cgroup.controllers`
-- [ ] 🔴 `tracing` setup with a `container_id` span field threaded through every subsystem
-- [ ] 🔴 Error model: `thiserror` per crate, `anyhow` only at binary boundaries
-- [ ] 🔴 `Makefile`: `build`, `test`, `test-root` (integration, needs sudo), `oci-conformance`, `web-dev`, `tui`
-- [ ] 🔴 Vagrant/QEMU dev VM definition — **do not develop this on your main machine**; a bad `pivot_root` or `umount` can wedge the host
-- [ ] 🔴 `cd web && bun create vite . --template react-ts`
-- [ ] 🔴 `bun add @tanstack/react-query @tanstack/react-table d3 recharts @xterm/xterm @xterm/addon-fit zustand clsx lucide-react`
-- [ ] 🔴 `bun add -d tailwindcss postcss autoprefixer @types/d3`; `bunx shadcn@latest init` + add `button card table badge tabs dialog select tooltip sheet progress separator scroll-area`
-- [ ] 🔴 `web/vite.config.ts`: proxy `/v1` and `/events` → `http://localhost:7777`
+- [x] 🔴 `cargo new --lib` workspace; 12 member crates per SPEC §16
+- [x] 🔴 Workspace `Cargo.toml`: shared deps `nix`, `libc`, `rustix`, `anyhow`, `thiserror`, `serde`, `serde_json`, `tracing`
+- [x] 🔴 `kestrel-runtime` deps must **exclude** `tokio` — enforce with a `cargo deny` rule or a test that inspects `cargo tree`
+- [x] 🔴 `crates/kestrel-oci`: pull in `oci-spec` and re-export; add local extension types
+- [x] 🔴 Preflight check binary: kernel ≥ 5.11, cgroup2 mounted at `/sys/fs/cgroup`, `overlay` in `/proc/filesystems`, `unprivileged_userns_clone` enabled
+- [x] 🔴 Preflight also reports which controllers are available in `/sys/fs/cgroup/cgroup.controllers`
+- [x] 🔴 `tracing` setup with a `container_id` span field threaded through every subsystem
+- [x] 🔴 Error model: `thiserror` per crate, `anyhow` only at binary boundaries
+- [x] 🔴 `Makefile`: `build`, `test`, `test-root` (integration, needs sudo), `oci-conformance`, `web-dev`, `tui`
+- [x] 🔴 Vagrant/QEMU dev VM definition — **do not develop this on your main machine**; a bad `pivot_root` or `umount` can wedge the host
+- [x] 🔴 `cd web && bun create vite . --template react-ts`
+- [x] 🔴 `bun add @tanstack/react-query @tanstack/react-table d3 recharts @xterm/xterm @xterm/addon-fit zustand clsx lucide-react`
+- [x] 🔴 `bun add -d tailwindcss postcss autoprefixer @types/d3`; `bunx shadcn@latest init` + add `button card table badge tabs dialog select tooltip sheet progress separator scroll-area`
+- [x] 🔴 `web/vite.config.ts`: proxy `/v1` and `/events` → `http://localhost:7777`
 
 ---
 
 ## Phase 1 — OCI Spec Types (12 tasks)
 
-- [ ] 🔴 `Spec`, `Process`, `Root`, `Mount`, `Linux`, `LinuxResources`, `LinuxNamespace`, `LinuxIdMapping`
-- [ ] 🔴 `LinuxCapabilities` (5 sets), `LinuxSeccomp`, `LinuxDevice`, `LinuxRlimit`
-- [ ] 🔴 `Hooks` with all 5 phases (`createRuntime`, `createContainer`, `startContainer`, `poststart`, `poststop`) + deprecated `prestart`
-- [ ] 🔴 `State { ociVersion, id, status, pid, bundle, annotations }` with `Status` enum
-- [ ] 🔴 `Spec::validate()`: root path present, process args non-empty, no duplicate namespace types, id-map coverage
-- [ ] 🔴 Default spec generator (`kestrel spec`) matching `runc spec` output
-- [ ] 🔴 Image config → runtime spec translation (Env, Cmd, Entrypoint, WorkingDir, User, ExposedPorts, Volumes)
-- [ ] 🔴 `User` resolution: numeric, `name`, `name:group`, `uid:gid` — resolve against the **container's** `/etc/passwd`, not the host's
-- [ ] 🔴 Serde round-trip preserves unknown fields (forward compatibility)
-- [ ] 🔴 Unit test: parse the official OCI example `config.json` without loss
-- [ ] 🔴 Unit test: `validate()` rejects duplicate namespaces, empty args, missing root
-- [ ] 🔴 Unit test: user resolution against a synthetic `/etc/passwd`
+- [x] 🔴 `Spec`, `Process`, `Root`, `Mount`, `Linux`, `LinuxResources`, `LinuxNamespace`, `LinuxIdMapping`
+- [x] 🔴 `LinuxCapabilities` (5 sets), `LinuxSeccomp`, `LinuxDevice`, `LinuxRlimit`
+- [x] 🔴 `Hooks` with all 5 phases (`createRuntime`, `createContainer`, `startContainer`, `poststart`, `poststop`) + deprecated `prestart`
+- [x] 🔴 `State { ociVersion, id, status, pid, bundle, annotations }` with `Status` enum
+- [x] 🔴 `Spec::validate()`: root path present, process args non-empty, no duplicate namespace types, id-map coverage
+- [x] 🔴 Default spec generator (`kestrel spec`) matching `runc spec` output
+- [x] 🔴 Image config → runtime spec translation (Env, Cmd, Entrypoint, WorkingDir, User, ExposedPorts, Volumes)
+- [x] 🔴 `User` resolution: numeric, `name`, `name:group`, `uid:gid` — resolve against the **container's** `/etc/passwd`, not the host's
+- [x] 🔴 Serde round-trip preserves unknown fields (forward compatibility)
+- [x] 🔴 Unit test: parse the official OCI example `config.json` without loss
+- [x] 🔴 Unit test: `validate()` rejects duplicate namespaces, empty args, missing root
+- [x] 🔴 Unit test: user resolution against a synthetic `/etc/passwd`
 
 ---
 
 ## Phase 2 — Namespaces (28 tasks)
 
 **Core**
-- [ ] 🔴 `NsType` enum (8 variants) with `clone_flag()` and `proc_name()`
-- [ ] 🔴 `CLONE_NEWTIME = 0x00000080` — not in `nix`, define manually
-- [ ] 🔴 `NamespacePlan`: which to create, which to join, in what order
-- [ ] 🔴 `unshare_namespaces(flags)` wrapper with errno context
-- [ ] 🔴 `setns_ordered(pins)` — **user namespace LAST** (entering it drops the caps needed for the rest)
-- [ ] 🔴 `pin_namespace(pid, ns, target)`: create target file, bind-mount `/proc/<pid>/ns/<t>`
-- [ ] 🔴 `unpin_namespace`: `umount2(MNT_DETACH)` + unlink
-- [ ] 🔴 `read_ns_inode(pid, ns)` from the `/proc/<pid>/ns/<t>` symlink target (`net:[4026532001]`)
+- [x] 🔴 `NsType` enum (8 variants) with `clone_flag()` and `proc_name()`
+- [x] 🔴 `CLONE_NEWTIME = 0x00000080` — not in `nix`, define manually
+- [x] 🔴 `NamespacePlan`: which to create, which to join, in what order
+- [x] 🔴 `unshare_namespaces(flags)` wrapper with errno context
+- [x] 🔴 `setns_ordered(pins)` — **user namespace LAST** (entering it drops the caps needed for the rest)
+- [x] 🔴 `pin_namespace(pid, ns, target)`: create target file, bind-mount `/proc/<pid>/ns/<t>`
+- [x] 🔴 `unpin_namespace`: `umount2(MNT_DETACH)` + unlink
+- [x] 🔴 `read_ns_inode(pid, ns)` from the `/proc/<pid>/ns/<t>` symlink target (`net:[4026532001]`)
 
 **ID maps**
-- [ ] 🔴 `IdMapping { container_id, host_id, size }`
-- [ ] 🔴 `write_id_maps(pid, uid, gid)` — **`setgroups=deny` BEFORE `gid_map`** (CVE-2014-8989)
-- [ ] 🔴 All map lines in a **single** `write()` — the kernel permits exactly one write per namespace
-- [ ] 🔴 Ignore `ENOENT` on `setgroups` for pre-3.19 kernels
-- [ ] 🟡 Rootless: parse `/etc/subuid`, `/etc/subgid`; build maps from the allocated range
-- [ ] 🟡 Rootless: `newuidmap`/`newgidmap` fallback when the range exceeds what we can map directly
+- [x] 🔴 `IdMapping { container_id, host_id, size }`
+- [x] 🔴 `write_id_maps(pid, uid, gid)` — **`setgroups=deny` BEFORE `gid_map`** (CVE-2014-8989)
+- [x] 🔴 All map lines in a **single** `write()` — the kernel permits exactly one write per namespace
+- [x] 🔴 Ignore `ENOENT` on `setgroups` for pre-3.19 kernels
+- [x] 🟡 Rootless: parse `/etc/subuid`, `/etc/subgid`; build maps from the allocated range
+- [x] 🟡 Rootless: `newuidmap`/`newgidmap` fallback when the range exceeds what we can map directly
 
 **The three-stage dance**
-- [ ] 🔴 `socketpair(AF_UNIX, SOCK_SEQPACKET)` for stage synchronization
-- [ ] 🔴 Sync protocol enum: `RequestMaps`, `MapsDone`, `ReportPid`, `Ready`, `Error(String)`
-- [ ] 🔴 STAGE 0: clone with everything **except** `CLONE_NEWPID`; write maps; receive grandchild PID
-- [ ] 🔴 STAGE 1: request maps; `setresuid(0,0,0)`; `unshare(CLONE_NEWPID)`; fork; report PID; `_exit(0)`
-- [ ] 🔴 STAGE 2 becomes PID 1 — reparented to the host init when STAGE 1 exits
-- [ ] 🔴 Every stage writes errors to the sync socket so the parent surfaces a real message instead of a silent hang
-- [ ] 🔴 Timeout on every sync read — a wedged stage must fail, not block forever
+- [x] 🔴 `socketpair(AF_UNIX, SOCK_SEQPACKET)` for stage synchronization
+- [x] 🔴 Sync protocol enum: `RequestMaps`, `MapsDone`, `ReportPid`, `Ready`, `Error(String)`
+- [x] 🔴 STAGE 0: clone with everything **except** `CLONE_NEWPID`; write maps; receive grandchild PID
+- [x] 🔴 STAGE 1: request maps; `setresuid(0,0,0)`; `unshare(CLONE_NEWPID)`; fork; report PID; `_exit(0)`
+- [x] 🔴 STAGE 2 becomes PID 1 — reparented to the host init when STAGE 1 exits
+- [x] 🔴 Every stage writes errors to the sync socket so the parent surfaces a real message instead of a silent hang
+- [x] 🔴 Timeout on every sync read — a wedged stage must fail, not block forever
 
 **Tests**
-- [ ] 🔴 `test_uts_isolation`: sethostname inside; host hostname unchanged
-- [ ] 🔴 `test_pid_isolation`: init sees itself as PID 1; `/proc` lists only container processes
-- [ ] 🔴 `test_userns_maps`: uid 0 inside maps to the invoking uid outside
-- [ ] 🔴 `test_setgroups_deny_required`: writing `gid_map` without denying setgroups returns `EPERM`
-- [ ] 🔴 `test_ns_inode_differs`: container ns inode ≠ host ns inode for all 8
-- [ ] 🔴 `test_pin_survives_pid1_exit`: pinned ns still enterable after PID 1 dies
-- [ ] 🔴 `test_join_order`: joining user-first then net fails; net-first then user succeeds
-- [ ] 🔴 `test_single_threaded`: assert `/proc/self/status` `Threads: 1` throughout setup
+- [x] 🔴 `test_uts_isolation`: sethostname inside; host hostname unchanged
+- [x] 🔴 `test_pid_isolation`: init sees itself as PID 1; `/proc` lists only container processes
+- [x] 🔴 `test_userns_maps`: uid 0 inside maps to the invoking uid outside
+- [x] 🔴 `test_setgroups_deny_required`: writing `gid_map` without denying setgroups returns `EPERM`
+- [x] 🔴 `test_ns_inode_differs`: container ns inode ≠ host ns inode for all 8
+- [x] 🔴 `test_pin_survives_pid1_exit`: pinned ns still enterable after PID 1 dies
+- [x] 🔴 `test_join_order`: joining user-first then net fails; net-first then user succeeds
+- [x] 🔴 `test_single_threaded`: assert `/proc/self/status` `Threads: 1` throughout setup
 
 ---
 
 ## Phase 3 — cgroups v2 (30 tasks)
 
 **Manager**
-- [ ] 🔴 `CgroupManager { root, path, delegated }`; detect v2 by `statfs` magic `CGROUP2_SUPER_MAGIC`
-- [ ] 🔴 Refuse to run on v1/hybrid with a clear error naming `systemd.unified_cgroup_hierarchy=1`
-- [ ] 🔴 `read_available_controllers()` from `cgroup.controllers`
-- [ ] 🔴 `enable_controllers_in_parents()` — walk root→parent writing `+cpu +memory +io +pids`; **never enable in the leaf itself**
-- [ ] 🔴 Respect the **no-internal-process rule**: containers always get a leaf cgroup
-- [ ] 🔴 `create()`, `destroy()` (with retry on `EBUSY` while processes exit)
-- [ ] 🔴 `add_process(pid)` → `cgroup.procs`
+- [x] 🔴 `CgroupManager { root, path, delegated }`; detect v2 by `statfs` magic `CGROUP2_SUPER_MAGIC`
+- [x] 🔴 Refuse to run on v1/hybrid with a clear error naming `systemd.unified_cgroup_hierarchy=1`
+- [x] 🔴 `read_available_controllers()` from `cgroup.controllers`
+- [x] 🔴 `enable_controllers_in_parents()` — walk root→parent writing `+cpu +memory +io +pids`; **never enable in the leaf itself**
+- [x] 🔴 Respect the **no-internal-process rule**: containers always get a leaf cgroup
+- [x] 🔴 `create()`, `destroy()` (with retry on `EBUSY` while processes exit)
+- [x] 🔴 `add_process(pid)` → `cgroup.procs`
 
 **Controllers**
-- [ ] 🔴 `cpu.max` = `"<quota> <period>"` or `"max <period>"`
-- [ ] 🔴 `cpu.weight` from OCI `shares` via the v1→v2 conversion (`1 + (s-2)*9999/262142`)
-- [ ] 🔴 `cpuset.cpus`, `cpuset.mems`
-- [ ] 🔴 `memory.max` (hard), `memory.high` (throttle), `memory.low`, `memory.min`
-- [ ] 🔴 `memory.swap.max` — v2 swap is **separate**, not memory+swap as in v1
-- [ ] 🔴 `pids.max`
-- [ ] 🔴 `io.max` per-device `rbps/wbps/riops/wiops`; `io.weight`
-- [ ] 🔴 `hugetlb.<size>.max` when the controller is present
-- [ ] 🟡 Unified `"max"` / `"-1"` / `0` limit formatting helper
+- [x] 🔴 `cpu.max` = `"<quota> <period>"` or `"max <period>"`
+- [x] 🔴 `cpu.weight` from OCI `shares` via the v1→v2 conversion (`1 + (s-2)*9999/262142`)
+- [x] 🔴 `cpuset.cpus`, `cpuset.mems`
+- [x] 🔴 `memory.max` (hard), `memory.high` (throttle), `memory.low`, `memory.min`
+- [x] 🔴 `memory.swap.max` — v2 swap is **separate**, not memory+swap as in v1
+- [x] 🔴 `pids.max`
+- [x] 🔴 `io.max` per-device `rbps/wbps/riops/wiops`; `io.weight`
+- [x] 🔴 `hugetlb.<size>.max` when the controller is present
+- [x] 🟡 Unified `"max"` / `"-1"` / `0` limit formatting helper
 
 **Runtime control**
-- [ ] 🔴 `freeze(bool)` via `cgroup.freeze`; poll `cgroup.events` for `frozen 1`
-- [ ] 🔴 `kill_all()` via `cgroup.kill` (5.14+), fallback to iterating `cgroup.procs`
-- [ ] 🔴 `is_populated()` from `cgroup.events` `populated`
+- [x] 🔴 `freeze(bool)` via `cgroup.freeze`; poll `cgroup.events` for `frozen 1`
+- [x] 🔴 `kill_all()` via `cgroup.kill` (5.14+), fallback to iterating `cgroup.procs`
+- [x] 🔴 `is_populated()` from `cgroup.events` `populated`
 
 **Stats & PSI**
-- [ ] 🔴 `stats()`: parse `cpu.stat` (`usage_usec`, `nr_throttled`, `throttled_usec`), `memory.current`, `memory.peak`, `memory.stat`, `io.stat`, `pids.current`
-- [ ] 🔴 `oom_events()` from `memory.events` — `oom_kill` is the authoritative OOM signal, **not** exit code 137
-- [ ] 🔴 `Psi { some, full }` parser for `cpu.pressure` / `memory.pressure` / `io.pressure` (note: `cpu` has no `full` on older kernels)
-- [ ] 🟡 PSI threshold triggers: write `"some <stall_us> <window_us>"`, `poll(POLLPRI)` — event-driven, not polled
-- [ ] 🟡 Graceful degradation when `CONFIG_PSI` is off
+- [x] 🔴 `stats()`: parse `cpu.stat` (`usage_usec`, `nr_throttled`, `throttled_usec`), `memory.current`, `memory.peak`, `memory.stat`, `io.stat`, `pids.current`
+- [x] 🔴 `oom_events()` from `memory.events` — `oom_kill` is the authoritative OOM signal, **not** exit code 137
+- [x] 🔴 `Psi { some, full }` parser for `cpu.pressure` / `memory.pressure` / `io.pressure` (note: `cpu` has no `full` on older kernels)
+- [x] 🟡 PSI threshold triggers: write `"some <stall_us> <window_us>"`, `poll(POLLPRI)` — event-driven, not polled
+- [x] 🟡 Graceful degradation when `CONFIG_PSI` is off
 
 **clone3**
-- [ ] 🟡 `CloneArgs` repr(C) struct; `CLONE_INTO_CGROUP = 0x200000000000`
-- [ ] 🟡 `clone_into_cgroup(flags, cgroup_fd)` via `SYS_clone3`
-- [ ] 🟡 Fallback to `fork()` + write `cgroup.procs` on `ENOSYS`
+- [x] 🟡 `CloneArgs` repr(C) struct; `CLONE_INTO_CGROUP = 0x200000000000`
+- [x] 🟡 `clone_into_cgroup(flags, cgroup_fd)` via `SYS_clone3`
+- [x] 🟡 Fallback to `fork()` + write `cgroup.procs` on `ENOSYS`
 
 **Tests**
-- [ ] 🔴 `test_memory_limit_ooms`: allocate past `memory.max`; `memory.events.oom_kill` increments
-- [ ] 🔴 `test_cpu_throttle`: busy loop under `cpu.max=50000 100000`; `cpu.stat.nr_throttled` > 0
-- [ ] 🔴 `test_pids_limit`: fork bomb stopped at `pids.max`; host unaffected
-- [ ] 🔴 `test_no_internal_processes`: writing a PID to a cgroup with `subtree_control` set fails
-- [ ] 🔴 `test_freeze_thaw`: frozen process makes no progress; thaw resumes it
-- [ ] 🟡 `test_clone_into_cgroup_no_window`: memory bomb in the first instruction still OOM-killed
+- [x] 🔴 `test_memory_limit_ooms`: allocate past `memory.max`; `memory.events.oom_kill` increments
+- [x] 🔴 `test_cpu_throttle`: busy loop under `cpu.max=50000 100000`; `cpu.stat.nr_throttled` > 0
+- [x] 🔴 `test_pids_limit`: fork bomb stopped at `pids.max`; host unaffected
+- [x] 🔴 `test_no_internal_processes`: writing a PID to a cgroup with `subtree_control` set fails
+- [x] 🔴 `test_freeze_thaw`: frozen process makes no progress; thaw resumes it
+- [x] 🟡 `test_clone_into_cgroup_no_window`: memory bomb in the first instruction still OOM-killed
 
 ---
 
 ## Phase 4 — Rootfs, OverlayFS & pivot_root (30 tasks)
 
 **Snapshotter**
-- [ ] 🔴 Directory layout per SPEC §6.1
-- [ ] 🔴 `chain_id(diff_ids)` computation
-- [ ] 🔴 Layer store keyed by chainID; `parent` file records the chain
-- [ ] 🔴 **Symlink farm**: `l/<6-char>` → `../layers/<chain>/diff`; `chdir(data_dir)` before mount so option strings stay under 4096 bytes
-- [ ] 🔴 `Snapshot { lower_links, upper, work, merged }`; `work` must be **empty** at mount time
-- [ ] 🔴 `mount_overlay()`: lowerdir colon-joined, **reversed** (rightmost = bottom)
-- [ ] 🔴 `userxattr` when rootless (5.11+); `metacopy=on`; `redirect_dir=on`
-- [ ] 🔴 `unmount_overlay()` with `MNT_DETACH` and busy-retry
-- [ ] 🟡 Driver fallback chain: `overlay2` → `fuse-overlayfs` → `vfs`
+- [x] 🔴 Directory layout per SPEC §6.1
+- [x] 🔴 `chain_id(diff_ids)` computation
+- [x] 🔴 Layer store keyed by chainID; `parent` file records the chain
+- [x] 🔴 **Symlink farm**: `l/<6-char>` → `../layers/<chain>/diff`; `chdir(data_dir)` before mount so option strings stay under 4096 bytes
+- [x] 🔴 `Snapshot { lower_links, upper, work, merged }`; `work` must be **empty** at mount time
+- [x] 🔴 `mount_overlay()`: lowerdir colon-joined, **reversed** (rightmost = bottom)
+- [x] 🔴 `userxattr` when rootless (5.11+); `metacopy=on`; `redirect_dir=on`
+- [x] 🔴 `unmount_overlay()` with `MNT_DETACH` and busy-retry
+- [x] 🟡 Driver fallback chain: `overlay2` → `fuse-overlayfs` → `vfs`
 
 **Layer application**
-- [ ] 🔴 `apply_layer(tar, dest)`: stream-extract with digest verification
-- [ ] 🔴 `.wh.<name>` → `mknod` char device `0:0`
-- [ ] 🔴 `.wh..wh..opq` → xattr `{trusted|user}.overlay.opaque = "y"`
-- [ ] 🔴 Path traversal guard: reject entries escaping `dest` via `..` or absolute paths or symlink targets
-- [ ] 🔴 Preserve uid/gid/mode/xattrs/times; remap ids when rootless
-- [ ] 🔴 Hardlink handling across a single layer
+- [x] 🔴 `apply_layer(tar, dest)`: stream-extract with digest verification
+- [x] 🔴 `.wh.<name>` → `mknod` char device `0:0`
+- [x] 🔴 `.wh..wh..opq` → xattr `{trusted|user}.overlay.opaque = "y"`
+- [x] 🔴 Path traversal guard: reject entries escaping `dest` via `..` or absolute paths or symlink targets
+- [x] 🔴 Preserve uid/gid/mode/xattrs/times; remap ids when rootless
+- [x] 🔴 Hardlink handling across a single layer
 
 **pivot_root**
-- [ ] 🔴 `mount(None, "/", MS_REC|MS_PRIVATE)` **first** — without it pivot_root fails and mounts leak to the host
-- [ ] 🔴 Bind-mount `new_root` onto itself so it satisfies "must be a mount point"
-- [ ] 🔴 `chdir(new_root)`; `pivot_root(".", ".")`
-- [ ] 🔴 `mount(None, ".", MS_REC|MS_SLAVE)` before detaching, so the umount cannot propagate
-- [ ] 🔴 `umount2(".", MNT_DETACH)`; `chdir("/")`
-- [ ] 🔴 `msMoveRoot` + `chroot` fallback for environments where pivot_root is unavailable
+- [x] 🔴 `mount(None, "/", MS_REC|MS_PRIVATE)` **first** — without it pivot_root fails and mounts leak to the host
+- [x] 🔴 Bind-mount `new_root` onto itself so it satisfies "must be a mount point"
+- [x] 🔴 `chdir(new_root)`; `pivot_root(".", ".")`
+- [x] 🔴 `mount(None, ".", MS_REC|MS_SLAVE)` before detaching, so the umount cannot propagate
+- [x] 🔴 `umount2(".", MNT_DETACH)`; `chdir("/")`
+- [x] 🔴 `msMoveRoot` + `chroot` fallback for environments where pivot_root is unavailable
 
 **Standard mounts**
-- [ ] 🔴 `/proc`, `/sys`, `/sys/fs/cgroup`, `/dev` (tmpfs), `/dev/pts` (newinstance), `/dev/shm`, `/dev/mqueue`
-- [ ] 🔴 Device nodes via `mknod`; **bind-mount from host when rootless**
-- [ ] 🔴 `/dev/console` from the allocated pty when a TTY is requested
-- [ ] 🔴 Symlinks: `/dev/{fd,stdin,stdout,stderr}` → `/proc/self/fd/*`
-- [ ] 🔴 User bind mounts with correct flags; `ro` requires **bind then remount** (single-call `MS_BIND|MS_RDONLY` silently ignores RDONLY)
-- [ ] 🔴 Mount propagation per spec (`rprivate` default)
-- [ ] 🔴 `mask_path()`: `/dev/null` bind for files, empty ro tmpfs for directories
-- [ ] 🔴 `make_readonly()` two-call sequence
-- [ ] 🔴 Apply the OCI default masked + readonly path lists
+- [x] 🔴 `/proc`, `/sys`, `/sys/fs/cgroup`, `/dev` (tmpfs), `/dev/pts` (newinstance), `/dev/shm`, `/dev/mqueue`
+- [x] 🔴 Device nodes via `mknod`; **bind-mount from host when rootless**
+- [x] 🔴 `/dev/console` from the allocated pty when a TTY is requested
+- [x] 🔴 Symlinks: `/dev/{fd,stdin,stdout,stderr}` → `/proc/self/fd/*`
+- [x] 🔴 User bind mounts with correct flags; `ro` requires **bind then remount** (single-call `MS_BIND|MS_RDONLY` silently ignores RDONLY)
+- [x] 🔴 Mount propagation per spec (`rprivate` default)
+- [x] 🔴 `mask_path()`: `/dev/null` bind for files, empty ro tmpfs for directories
+- [x] 🔴 `make_readonly()` two-call sequence
+- [x] 🔴 Apply the OCI default masked + readonly path lists
 
 **Copy-up tracing**
-- [ ] 🟡 `scan_copy_ups()`: walk upperdir, classify Data / MetadataOnly / Whiteout / Opaque
-- [ ] 🟡 Attribute each to its origin layer chainID; compute amplification ratio
+- [x] 🟡 `scan_copy_ups()`: walk upperdir, classify Data / MetadataOnly / Whiteout / Opaque
+- [x] 🟡 Attribute each to its origin layer chainID; compute amplification ratio
 
 **Tests**
-- [ ] 🔴 `test_whiteout_hides_lower`: delete in merged → char dev 0:0 in upper, entry gone from merged, lower untouched
-- [ ] 🔴 `test_opaque_dir`: `rm -rf` + recreate a lower dir → opaque xattr, lower contents fully hidden
-- [ ] 🔴 `test_copyup_on_write`: append one byte to a lower file → full file appears in upper
-- [ ] 🔴 `test_pivot_root_no_escape`: attempt the classic `fchdir` chroot escape → fails
-- [ ] 🔴 `test_host_mounts_unchanged`: `/proc/self/mountinfo` on the host identical before and after a full container lifecycle
-- [ ] 🔴 `test_readonly_bind_actually_readonly`: single-call `MS_BIND|MS_RDONLY` is writable (proving the bug), two-call is not
-- [ ] 🔴 `test_tar_path_traversal_rejected`: malicious layer with `../../etc/passwd` is refused
+- [x] 🔴 `test_whiteout_hides_lower`: delete in merged → char dev 0:0 in upper, entry gone from merged, lower untouched
+- [x] 🔴 `test_opaque_dir`: `rm -rf` + recreate a lower dir → opaque xattr, lower contents fully hidden
+- [x] 🔴 `test_copyup_on_write`: append one byte to a lower file → full file appears in upper
+- [x] 🔴 `test_pivot_root_no_escape`: attempt the classic `fchdir` chroot escape → fails
+- [x] 🔴 `test_host_mounts_unchanged`: `/proc/self/mountinfo` on the host identical before and after a full container lifecycle
+- [x] 🔴 `test_readonly_bind_actually_readonly`: single-call `MS_BIND|MS_RDONLY` is writable (proving the bug), two-call is not
+- [x] 🔴 `test_tar_path_traversal_rejected`: malicious layer with `../../etc/passwd` is refused
 
 ---
 
 ## Phase 5 — Security (20 tasks)
 
 **Capabilities**
-- [ ] 🔴 Apply order: clear ambient → drop bounding → set permitted/inheritable/effective → raise ambient
-- [ ] 🔴 Bounding-set drops are irreversible — verify none of the 5 sets is applied before bounding
-- [ ] 🔴 Default 14-capability set
-- [ ] 🔴 `--cap-add` / `--cap-drop` resolution against the default
-- [ ] 🔴 Report all 5 sets from `/proc/<pid>/status` for the API
+- [x] 🔴 Apply order: clear ambient → drop bounding → set permitted/inheritable/effective → raise ambient
+- [x] 🔴 Bounding-set drops are irreversible — verify none of the 5 sets is applied before bounding
+- [x] 🔴 Default 14-capability set
+- [x] 🔴 `--cap-add` / `--cap-drop` resolution against the default
+- [x] 🔴 Report all 5 sets from `/proc/<pid>/status` for the API
 
 **no_new_privs & rlimits**
-- [ ] 🔴 `prctl(PR_SET_NO_NEW_PRIVS, 1)` **before** seccomp
-- [ ] 🔴 All `RLIMIT_*` from the spec
-- [ ] 🔴 `oom_score_adj` written to `/proc/<pid>/oom_score_adj`
-- [ ] 🔴 `PR_SET_PDEATHSIG` on the init process
+- [x] 🔴 `prctl(PR_SET_NO_NEW_PRIVS, 1)` **before** seccomp
+- [x] 🔴 All `RLIMIT_*` from the spec
+- [x] 🔴 `oom_score_adj` written to `/proc/<pid>/oom_score_adj`
+- [x] 🔴 `PR_SET_PDEATHSIG` on the init process
 
 **Seccomp**
-- [ ] 🔴 Build filter context from `LinuxSeccomp`; default action, arch list, per-syscall rules
-- [ ] 🔴 Argument comparisons (`SCMP_CMP_*`) for conditional rules
-- [ ] 🔴 Unknown syscall names → skip with a warning, never fail the container
-- [ ] 🔴 Load **after** `no_new_privs`, **immediately before** `execve`
-- [ ] 🔴 Ship the Docker-equivalent default profile (~44 denied syscalls) in `profiles/seccomp/default.json`
-- [ ] 🟡 `SCMP_ACT_NOTIFY` support: obtain the notify fd, pass it to the daemon via SCM_RIGHTS
-- [ ] 🟡 Daemon-side notify supervisor: read `seccomp_notif`, log `{pid, syscall, args}`, respond `ENOSYS`, emit SSE
+- [x] 🔴 Build filter context from `LinuxSeccomp`; default action, arch list, per-syscall rules
+- [x] 🔴 Argument comparisons (`SCMP_CMP_*`) for conditional rules
+- [x] 🔴 Unknown syscall names → skip with a warning, never fail the container
+- [x] 🔴 Load **after** `no_new_privs`, **immediately before** `execve`
+- [x] 🔴 Ship the Docker-equivalent default profile (~44 denied syscalls) in `profiles/seccomp/default.json`
+- [x] 🟡 `SCMP_ACT_NOTIFY` support: obtain the notify fd, pass it to the daemon via SCM_RIGHTS
+- [x] 🟡 Daemon-side notify supervisor: read `seccomp_notif`, log `{pid, syscall, args}`, respond `ENOSYS`, emit SSE
 
 **Tests**
-- [ ] 🔴 `test_caps_dropped`: `CAP_SYS_ADMIN` absent → `mount()` inside returns `EPERM`
-- [ ] 🔴 `test_no_new_privs_blocks_setuid`: a setuid-root binary inside does not elevate
-- [ ] 🔴 `test_seccomp_blocks_syscall`: a denied syscall returns the configured errno
-- [ ] 🔴 `test_seccomp_before_exec`: the entrypoint's first syscall is already filtered
-- [ ] 🟡 `test_seccomp_notify_captures`: violation appears in the daemon's log with correct syscall name
+- [x] 🔴 `test_caps_dropped`: `CAP_SYS_ADMIN` absent → `mount()` inside returns `EPERM`
+- [x] 🔴 `test_no_new_privs_blocks_setuid`: a setuid-root binary inside does not elevate
+- [x] 🔴 `test_seccomp_blocks_syscall`: a denied syscall returns the configured errno
+- [x] 🔴 `test_seccomp_before_exec`: the entrypoint's first syscall is already filtered
+- [x] 🟡 `test_seccomp_notify_captures`: violation appears in the daemon's log with correct syscall name
 
 ---
 
 ## Phase 6 — Image Store & Registry (24 tasks)
 
 **Content store**
-- [ ] 🔴 `content/blobs/sha256/<digest>` layout; write-to-temp-then-rename for atomicity
-- [ ] 🔴 `Digest` newtype with parse/display/verify
-- [ ] 🔴 Streaming digest verification during download — reject before the blob is fully written
-- [ ] 🔴 Refcounting so `rmi` never deletes a blob another image needs
-- [ ] 🔴 `oci-layout` + `index.json` for local image export
+- [x] 🔴 `content/blobs/sha256/<digest>` layout; write-to-temp-then-rename for atomicity
+- [x] 🔴 `Digest` newtype with parse/display/verify
+- [x] 🔴 Streaming digest verification during download — reject before the blob is fully written
+- [x] 🔴 Refcounting so `rmi` never deletes a blob another image needs
+- [x] 🔴 `oci-layout` + `index.json` for local image export
 
 **Manifests**
-- [ ] 🔴 `ImageManifest`, `ImageIndex`, `ImageConfig`, `Descriptor` types
-- [ ] 🔴 Platform selection from an index (`os`, `architecture`, `variant`)
-- [ ] 🔴 Docker v2 schema 2 ↔ OCI manifest compatibility (media type mapping)
-- [ ] 🔴 **diffID vs digest**: diffID = SHA-256 of the *uncompressed* tar; digest = SHA-256 of the *compressed* blob
-- [ ] 🔴 `chain_id()` per SPEC §10.1
+- [x] 🔴 `ImageManifest`, `ImageIndex`, `ImageConfig`, `Descriptor` types
+- [x] 🔴 Platform selection from an index (`os`, `architecture`, `variant`)
+- [x] 🔴 Docker v2 schema 2 ↔ OCI manifest compatibility (media type mapping)
+- [x] 🔴 **diffID vs digest**: diffID = SHA-256 of the *uncompressed* tar; digest = SHA-256 of the *compressed* blob
+- [x] 🔴 `chain_id()` per SPEC §10.1
 
 **Registry client**
-- [ ] 🔴 `GET /v2/` → parse `WWW-Authenticate` → token fetch with correct `scope`
-- [ ] 🔴 Manifest fetch with a full `Accept` header covering all four media types
-- [ ] 🔴 Blob download with `Range` resume support
-- [ ] 🔴 Bounded-parallel layer download (default 4) with per-layer progress events
-- [ ] 🔴 Reference parsing: `[registry/]name[:tag][@digest]`, defaulting to `docker.io/library/*:latest`
-- [ ] 🟡 `docker.io` → `registry-1.docker.io` host rewrite
-- [ ] 🟡 Retry with backoff on 429/5xx
-- [ ] 🟡 Anonymous + basic + bearer auth
+- [x] 🔴 `GET /v2/` → parse `WWW-Authenticate` → token fetch with correct `scope`
+- [x] 🔴 Manifest fetch with a full `Accept` header covering all four media types
+- [x] 🔴 Blob download with `Range` resume support
+- [x] 🔴 Bounded-parallel layer download (default 4) with per-layer progress events
+- [x] 🔴 Reference parsing: `[registry/]name[:tag][@digest]`, defaulting to `docker.io/library/*:latest`
+- [x] 🟡 `docker.io` → `registry-1.docker.io` host rewrite
+- [x] 🟡 Retry with backoff on 429/5xx
+- [x] 🟡 Anonymous + basic + bearer auth
 
 **Extraction**
-- [ ] 🔴 Decompress gzip / zstd while computing the diffID
-- [ ] 🔴 Skip extraction when the chainID layer already exists (dedup)
-- [ ] 🔴 Emit `image.pull.progress` SSE per layer
+- [x] 🔴 Decompress gzip / zstd while computing the diffID
+- [x] 🔴 Skip extraction when the chainID layer already exists (dedup)
+- [x] 🔴 Emit `image.pull.progress` SSE per layer
 
 **Tests**
-- [ ] 🔴 `test_chain_id_known_values`: hardcoded diffIDs → expected chainIDs
-- [ ] 🔴 `test_digest_mismatch_rejected`: corrupt a blob mid-stream → error, nothing persisted
-- [ ] 🔴 `test_layer_dedup`: pull two images sharing a base → base extracted once
-- [ ] 🟡 `test_pull_alpine_e2e`: real pull, then run `/bin/true` from it
+- [x] 🔴 `test_chain_id_known_values`: hardcoded diffIDs → expected chainIDs
+- [x] 🔴 `test_digest_mismatch_rejected`: corrupt a blob mid-stream → error, nothing persisted
+- [x] 🔴 `test_layer_dedup`: pull two images sharing a base → base extracted once
+- [x] 🟡 `test_pull_alpine_e2e`: real pull, then run `/bin/true` from it
 
 ---
 
 ## Phase 7 — Networking (24 tasks)
 
 **netns**
-- [ ] 🔴 Create a netns and pin it at `/run/kestrel/netns/<id>`
-- [ ] 🔴 `nsenter(fd, closure)` helper that restores the original netns on the way out
-- [ ] 🔴 Teardown: unmount pin, remove file
+- [x] 🔴 Create a netns and pin it at `/run/kestrel/netns/<id>`
+- [x] 🔴 `nsenter(fd, closure)` helper that restores the original netns on the way out
+- [x] 🔴 Teardown: unmount pin, remove file
 
 **Bridge & veth (rtnetlink only, no shelling out)**
-- [ ] 🔴 `ensure_bridge(name, gateway, subnet)`: create if absent, assign gateway, bring up
-- [ ] 🔴 `veth` pair creation
-- [ ] 🔴 Move the peer into the netns **by fd** (`setns_by_fd`), not by pid
-- [ ] 🔴 Enslave the host end to the bridge; set MTU; bring up
-- [ ] 🔴 Inside the netns: rename to `eth0`, assign address, bring up, `lo` up
-- [ ] 🔴 Default route via the bridge gateway
-- [ ] 🔴 Deterministic MAC derived from the IP (stable across restarts)
+- [x] 🔴 `ensure_bridge(name, gateway, subnet)`: create if absent, assign gateway, bring up
+- [x] 🔴 `veth` pair creation
+- [x] 🔴 Move the peer into the netns **by fd** (`setns_by_fd`), not by pid
+- [x] 🔴 Enslave the host end to the bridge; set MTU; bring up
+- [x] 🔴 Inside the netns: rename to `eth0`, assign address, bring up, `lo` up
+- [x] 🔴 Default route via the bridge gateway
+- [x] 🔴 Deterministic MAC derived from the IP (stable across restarts)
 
 **IPAM**
-- [ ] 🔴 Bitmap allocator over the subnet; persist to disk
-- [ ] 🔴 Reserve network, broadcast, and gateway addresses
-- [ ] 🔴 Release on container delete; leak-sweep on daemon start
+- [x] 🔴 Bitmap allocator over the subnet; persist to disk
+- [x] 🔴 Reserve network, broadcast, and gateway addresses
+- [x] 🔴 Release on container delete; leak-sweep on daemon start
 
 **NAT**
-- [ ] 🔴 `sysctl net.ipv4.ip_forward=1`; `net.bridge.bridge-nf-call-iptables=1`
-- [ ] 🔴 POSTROUTING MASQUERADE for the subnet, excluding the bridge itself
-- [ ] 🔴 A dedicated `KESTREL` chain so teardown never touches unrelated rules
-- [ ] 🔴 DNAT per published port; hairpin MASQUERADE rule
-- [ ] 🔴 FORWARD accept rules incl. conntrack ESTABLISHED,RELATED
-- [ ] 🔴 Idempotent add (check-then-insert) and complete teardown
+- [x] 🔴 `sysctl net.ipv4.ip_forward=1`; `net.bridge.bridge-nf-call-iptables=1`
+- [x] 🔴 POSTROUTING MASQUERADE for the subnet, excluding the bridge itself
+- [x] 🔴 A dedicated `KESTREL` chain so teardown never touches unrelated rules
+- [x] 🔴 DNAT per published port; hairpin MASQUERADE rule
+- [x] 🔴 FORWARD accept rules incl. conntrack ESTABLISHED,RELATED
+- [x] 🔴 Idempotent add (check-then-insert) and complete teardown
 
 **Modes & DNS**
-- [ ] 🔴 `host` (no netns), `none` (lo only), `container:<id>` (join existing netns)
-- [ ] 🔴 Generate `/etc/hosts`, `/etc/hostname`, `/etc/resolv.conf` and bind-mount them in
-- [ ] 🟡 Embedded DNS resolver on the bridge gateway for container-name resolution
-- [ ] 🟡 Rootless: detect and delegate to `pasta` (preferred) or `slirp4netns`
+- [x] 🔴 `host` (no netns), `none` (lo only), `container:<id>` (join existing netns)
+- [x] 🔴 Generate `/etc/hosts`, `/etc/hostname`, `/etc/resolv.conf` and bind-mount them in
+- [x] 🟡 Embedded DNS resolver on the bridge gateway for container-name resolution
+- [x] 🟡 Rootless: detect and delegate to `pasta` (preferred) or `slirp4netns`
 
 **Tests**
-- [ ] 🔴 `test_none_mode_only_lo`: exactly one interface
-- [ ] 🔴 `test_bridge_egress`: container reaches an external address
-- [ ] 🔴 `test_inter_container`: two containers on the bridge ping each other
-- [ ] 🔴 `test_published_port`: host `curl localhost:<hostport>` reaches the container
-- [ ] 🔴 `test_teardown_leaves_no_rules`: iptables + `ip link` identical before/after
+- [x] 🔴 `test_none_mode_only_lo`: exactly one interface
+- [x] 🔴 `test_bridge_egress`: container reaches an external address
+- [x] 🔴 `test_inter_container`: two containers on the bridge ping each other
+- [x] 🔴 `test_published_port`: host `curl localhost:<hostport>` reaches the container
+- [x] 🔴 `test_teardown_leaves_no_rules`: iptables + `ip link` identical before/after
 
 ---
 
 ## Phase 8 — Runtime Binary (`kestrel-runtime`) (24 tasks)
 
-- [ ] 🔴 `clap` subcommands: `create`, `start`, `state`, `kill`, `delete`, `exec`, `ps`, `pause`, `resume`
-- [ ] 🔴 **Assert single-threaded at startup** and fail loudly otherwise
-- [ ] 🔴 `create`: load bundle, validate spec, create cgroup, run the three-stage dance
-- [ ] 🔴 Bootstrap data (namespace paths, clone flags, id maps) passed to the child over the sync socket
-- [ ] 🔴 Write `state.json` atomically (temp + rename)
-- [ ] 🔴 Create the exec FIFO at `/run/kestrel/<id>/exec.fifo`
-- [ ] 🔴 `createRuntime` hooks fire **after** namespaces exist, **before** pivot_root — this is where CNI would run
-- [ ] 🔴 `start`: open the FIFO for writing → unblocks init; then `poststart` hooks
-- [ ] 🔴 `state`: read and print `state.json`, refreshing `status` by checking the pid
-- [ ] 🔴 `kill`: signal by name or number; `--all` uses `cgroup.kill`
-- [ ] 🔴 `delete`: kill if running (`--force`), unmount overlay, remove cgroup, unpin namespaces, teardown net, `poststop` hooks
-- [ ] 🔴 `exec`: `setns` into the pinned namespaces in the correct order, apply caps/seccomp, exec
-- [ ] 🔴 `pause`/`resume` via `cgroup.freeze`
+- [x] 🔴 `clap` subcommands: `create`, `start`, `state`, `kill`, `delete`, `exec`, `ps`, `pause`, `resume`
+- [x] 🔴 **Assert single-threaded at startup** and fail loudly otherwise
+- [x] 🔴 `create`: load bundle, validate spec, create cgroup, run the three-stage dance
+- [x] 🔴 Bootstrap data (namespace paths, clone flags, id maps) passed to the child over the sync socket
+- [x] 🔴 Write `state.json` atomically (temp + rename)
+- [x] 🔴 Create the exec FIFO at `/run/kestrel/<id>/exec.fifo`
+- [x] 🔴 `createRuntime` hooks fire **after** namespaces exist, **before** pivot_root — this is where CNI would run
+- [x] 🔴 `start`: open the FIFO for writing → unblocks init; then `poststart` hooks
+- [x] 🔴 `state`: read and print `state.json`, refreshing `status` by checking the pid
+- [x] 🔴 `kill`: signal by name or number; `--all` uses `cgroup.kill`
+- [x] 🔴 `delete`: kill if running (`--force`), unmount overlay, remove cgroup, unpin namespaces, teardown net, `poststop` hooks
+- [x] 🔴 `exec`: `setns` into the pinned namespaces in the correct order, apply caps/seccomp, exec
+- [x] 🔴 `pause`/`resume` via `cgroup.freeze`
 
 **kestrel-init (PID 1)**
-- [ ] 🔴 Separate static binary (`-C target-feature=+crt-static`), copied into the container at a fixed path
-- [ ] 🔴 Receives config over the sync socket, never reads host files after pivot_root
-- [ ] 🔴 Order: mounts → pivot_root → sethostname → time-ns offsets → `createContainer` hooks → **block on FIFO** → `startContainer` hooks → caps → no_new_privs → seccomp → `execve`
-- [ ] 🔴 Signal blocking before fork; `signalfd` for the reaper loop
-- [ ] 🔴 `SIGCHLD` reap loop must `waitpid(-1, WNOHANG)` in a loop — one SIGCHLD can cover many deaths
-- [ ] 🔴 Forward all other signals to the entrypoint
-- [ ] 🔴 Exit with the entrypoint's code, or `128 + signum`
+- [x] 🔴 Separate static binary (`-C target-feature=+crt-static`), copied into the container at a fixed path
+- [x] 🔴 Receives config over the sync socket, never reads host files after pivot_root
+- [x] 🔴 Order: mounts → pivot_root → sethostname → time-ns offsets → `createContainer` hooks → **block on FIFO** → `startContainer` hooks → caps → no_new_privs → seccomp → `execve`
+- [x] 🔴 Signal blocking before fork; `signalfd` for the reaper loop
+- [x] 🔴 `SIGCHLD` reap loop must `waitpid(-1, WNOHANG)` in a loop — one SIGCHLD can cover many deaths
+- [x] 🔴 Forward all other signals to the entrypoint
+- [x] 🔴 Exit with the entrypoint's code, or `128 + signum`
 
 **Tests**
-- [ ] 🔴 `test_create_then_start`: after `create`, the process exists but the entrypoint has not run; after `start` it has
-- [ ] 🔴 `test_exit_code_propagates`: `exit 42` → runtime exits 42
-- [ ] 🔴 `test_signal_exit_code`: killed by SIGKILL → 137
-- [ ] 🔴 `test_zombie_reaping`: spawn+abandon 10,000 children → `pids.current` returns to baseline
-- [ ] 🔴 `test_hooks_fire_in_order`: all 5 phases append to a file in the expected sequence
+- [x] 🔴 `test_create_then_start`: after `create`, the process exists but the entrypoint has not run; after `start` it has
+- [x] 🔴 `test_exit_code_propagates`: `exit 42` → runtime exits 42
+- [x] 🔴 `test_signal_exit_code`: killed by SIGKILL → 137
+- [x] 🔴 `test_zombie_reaping`: spawn+abandon 10,000 children → `pids.current` returns to baseline
+- [x] 🔴 `test_hooks_fire_in_order`: all 5 phases append to a file in the expected sequence
 
 ---
 
 ## Phase 9 — Daemon (`kestreld`) (24 tasks)
 
-- [ ] 🔴 `tokio` + `axum`; listen on both a Unix socket and `127.0.0.1:7777`
-- [ ] 🔴 Container registry: in-memory map persisted to `/run/kestrel/containers/<id>/`
-- [ ] 🔴 State recovery on daemon restart — running containers must survive a daemon bounce
-- [ ] 🔴 **`fork+exec` `kestrel-runtime`**, never link it (preserves the single-thread invariant)
-- [ ] 🔴 `POST /containers`: image resolve → snapshot → spec build → net attach → runtime create
-- [ ] 🔴 Lifecycle endpoints: start/stop/kill/pause/unpause/delete
-- [ ] 🔴 `stop`: SIGTERM → grace period → SIGKILL
-- [ ] 🔴 `GET /containers/:id` full inspect
-- [ ] 🔴 Log capture: pipe stdout/stderr to `/var/lib/kestrel/containers/<id>/<stream>.log` with json-lines framing
-- [ ] 🔴 `GET /logs` SSE with `follow`, `tail`, `since`
-- [ ] 🔴 `WS /attach` bidirectional stdio; pty allocation when `-t`
-- [ ] 🔴 `POST /resize` → `TIOCSWINSZ`
-- [ ] 🔴 Metrics sampler at 1 Hz: cgroup stats + PSI for every running container
-- [ ] 🔴 OOM watcher: poll `memory.events.oom_kill`, emit an event on increment
-- [ ] 🟡 Copy-up scanner every 5 s → `copyup` events
-- [ ] 🟡 Seccomp-notify supervisor → `seccomp.violation` events
-- [ ] 🔴 `GET /events` SSE with all event types
-- [ ] 🔴 Introspection endpoints: `/namespaces`, `/cgroup`, `/pressure`, `/layers`, `/copyups`, `/mounts`, `/caps`, `/seccomp`, `/network`
-- [ ] 🔴 `GET /system/namespaces`: scan `/proc/*/ns/*`, build the PID↔namespace graph
-- [ ] 🔴 `GET /system/topology`: bridges, veth pairs (via `IFLA_LINK` peer index), netns, NAT rules
-- [ ] 🔴 Image endpoints incl. pull with per-layer SSE progress
-- [ ] 🟡 `GET /images/dedup`: logical vs physical bytes across all images
-- [ ] 🔴 Graceful shutdown: SIGTERM → stop accepting → flush logs → leave containers running
-- [ ] 🔴 Leak sweep on startup: orphaned netns, stale overlay mounts, empty cgroups
+- [x] 🔴 `tokio` + `axum`; listen on both a Unix socket and `127.0.0.1:7777`
+- [x] 🔴 Container registry: in-memory map persisted to `/run/kestrel/containers/<id>/`
+- [x] 🔴 State recovery on daemon restart — running containers must survive a daemon bounce
+- [x] 🔴 **`fork+exec` `kestrel-runtime`**, never link it (preserves the single-thread invariant)
+- [x] 🔴 `POST /containers`: image resolve → snapshot → spec build → net attach → runtime create
+- [x] 🔴 Lifecycle endpoints: start/stop/kill/pause/unpause/delete
+- [x] 🔴 `stop`: SIGTERM → grace period → SIGKILL
+- [x] 🔴 `GET /containers/:id` full inspect
+- [x] 🔴 Log capture: pipe stdout/stderr to `/var/lib/kestrel/containers/<id>/<stream>.log` with json-lines framing
+- [x] 🔴 `GET /logs` SSE with `follow`, `tail`, `since`
+- [x] 🔴 `WS /attach` bidirectional stdio; pty allocation when `-t`
+- [x] 🔴 `POST /resize` → `TIOCSWINSZ`
+- [x] 🔴 Metrics sampler at 1 Hz: cgroup stats + PSI for every running container
+- [x] 🔴 OOM watcher: poll `memory.events.oom_kill`, emit an event on increment
+- [x] 🟡 Copy-up scanner every 5 s → `copyup` events
+- [x] 🟡 Seccomp-notify supervisor → `seccomp.violation` events
+- [x] 🔴 `GET /events` SSE with all event types
+- [x] 🔴 Introspection endpoints: `/namespaces`, `/cgroup`, `/pressure`, `/layers`, `/copyups`, `/mounts`, `/caps`, `/seccomp`, `/network`
+- [x] 🔴 `GET /system/namespaces`: scan `/proc/*/ns/*`, build the PID↔namespace graph
+- [x] 🔴 `GET /system/topology`: bridges, veth pairs (via `IFLA_LINK` peer index), netns, NAT rules
+- [x] 🔴 Image endpoints incl. pull with per-layer SSE progress
+- [x] 🟡 `GET /images/dedup`: logical vs physical bytes across all images
+- [x] 🔴 Graceful shutdown: SIGTERM → stop accepting → flush logs → leave containers running
+- [x] 🔴 Leak sweep on startup: orphaned netns, stale overlay mounts, empty cgroups
 
 ---
 
@@ -501,12 +501,12 @@
 
 ## Phase 14 — Docs & Polish (12 tasks)
 
-- [ ] 🟢 `README.md`: what it is, the Rust rationale, quickstart, VM setup warning
-- [ ] 🟢 `docs/NAMESPACES.md`: the three-stage dance explained with a diagram
-- [ ] 🟢 `docs/CGROUPS.md`: v2 rules, controller reference, PSI interpretation guide
-- [ ] 🟢 `docs/OVERLAY.md`: layer model, whiteouts, copy-up, the symlink-farm rationale
-- [ ] 🟢 `docs/SECURITY.md`: capability defaults, seccomp profile, threat model, known gaps
-- [ ] 🟢 ASCII architecture diagram
+- [x] 🟢 `README.md`: what it is, the Rust rationale, quickstart, VM setup warning
+- [x] 🟢 `docs/NAMESPACES.md`: the three-stage dance explained with a diagram
+- [x] 🟢 `docs/CGROUPS.md`: v2 rules, controller reference, PSI interpretation guide
+- [x] 🟢 `docs/OVERLAY.md`: layer model, whiteouts, copy-up, the symlink-farm rationale
+- [x] 🟢 `docs/SECURITY.md`: capability defaults, seccomp profile, threat model, known gaps
+- [x] 🟢 ASCII architecture diagram
 - [ ] 🟢 Annotated `kestrel explain` sample output
 - [ ] 🟡 `--verbose` tracing that names each setup phase with timing
 - [ ] 🟡 Error messages that name the failing syscall, its arguments, and the likely fix
@@ -536,3 +536,4 @@
 | 13. Integration Tests & Conformance | 22 |
 | 14. Docs & Polish | 12 |
 | **TOTAL** | **328** |
+> **Status (2026-09-04):** Phases 0–9 complete and verified (`cargo build --workspace` + `npm --prefix web run build` + `sudo -E cargo test -- --ignored` in Lima VM). Phase 14 docs (README + 4 architecture docs + diagram) complete. Remaining: Phase 10 (CLI), 11 (TUI), 12 (Web), 13 (Integration/conformance), 14 polish (explain, verbose tracing, error messages, CRIU/Wasm/shim stretches) — see unchecked items above.

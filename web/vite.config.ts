@@ -12,7 +12,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/containers': 'http://localhost:7777',
+      '/containers': {
+        target: 'http://localhost:7777',
+        ws: true,
+      },
       '/images': 'http://localhost:7777',
       '/system': 'http://localhost:7777',
       '/events': {
