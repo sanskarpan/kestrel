@@ -25,7 +25,10 @@ fn set_raw_path(header: &mut Header, path: &str) {
         *b = 0;
     }
     let bytes = path.as_bytes();
-    assert!(bytes.len() < name.len(), "test path too long for raw old-header name field");
+    assert!(
+        bytes.len() < name.len(),
+        "test path too long for raw old-header name field"
+    );
     name[..bytes.len()].copy_from_slice(bytes);
 }
 
@@ -45,14 +48,23 @@ fn build_malicious_tar(path: &str, contents: &[u8]) -> Vec<u8> {
 #[test]
 fn test_apply_layer_extracts_ordinary_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let tar_bytes = build_tar(&[("hello.txt", b"world"), ("dir/nested.txt", b"nested-content")]);
+    let tar_bytes = build_tar(&[
+        ("hello.txt", b"world"),
+        ("dir/nested.txt", b"nested-content"),
+    ]);
 
     let stats = apply_layer(Cursor::new(tar_bytes), tmp.path(), false)
         .expect("apply_layer should extract ordinary files");
 
     assert_eq!(stats.files, 2);
-    assert_eq!(fs::read_to_string(tmp.path().join("hello.txt")).unwrap(), "world");
-    assert_eq!(fs::read_to_string(tmp.path().join("dir/nested.txt")).unwrap(), "nested-content");
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("hello.txt")).unwrap(),
+        "world"
+    );
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("dir/nested.txt")).unwrap(),
+        "nested-content"
+    );
 }
 
 #[test]
@@ -98,7 +110,10 @@ fn test_apply_layer_translates_whiteout_to_char_device_0_0() {
         assert_eq!(stats.whiteouts, 1);
         let meta = fs::symlink_metadata(tmp.path().join("existing.txt")).unwrap();
         use std::os::unix::fs::FileTypeExt;
-        assert!(meta.file_type().is_char_device(), "whiteout must be a character device");
+        assert!(
+            meta.file_type().is_char_device(),
+            "whiteout must be a character device"
+        );
 
         use nix::sys::stat::stat;
         let st = stat(&tmp.path().join("existing.txt")).unwrap();
@@ -151,7 +166,13 @@ fn test_apply_layer_round_trips_hardlinks() {
         header.set_size(b"shared-content".len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
-        builder.append_data(&mut header, "original.txt", Cursor::new(b"shared-content" as &[u8])).unwrap();
+        builder
+            .append_data(
+                &mut header,
+                "original.txt",
+                Cursor::new(b"shared-content" as &[u8]),
+            )
+            .unwrap();
 
         let mut link_header = Header::new_gnu();
         link_header.set_entry_type(tar::EntryType::Link);
@@ -159,18 +180,26 @@ fn test_apply_layer_round_trips_hardlinks() {
         link_header.set_mode(0o644);
         link_header.set_link_name("original.txt").unwrap();
         link_header.set_cksum();
-        builder.append_data(&mut link_header, "hardlink.txt", Cursor::new(&[] as &[u8])).unwrap();
+        builder
+            .append_data(&mut link_header, "hardlink.txt", Cursor::new(&[] as &[u8]))
+            .unwrap();
 
         let tar_bytes = builder.into_inner().unwrap();
         let stats = apply_layer(Cursor::new(tar_bytes), tmp.path(), false)
             .expect("apply_layer should round-trip hardlinks");
 
         assert_eq!(stats.files, 2);
-        assert_eq!(fs::read_to_string(tmp.path().join("hardlink.txt")).unwrap(), "shared-content");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("hardlink.txt")).unwrap(),
+            "shared-content"
+        );
 
         use std::os::unix::fs::MetadataExt;
         let orig_ino = fs::metadata(tmp.path().join("original.txt")).unwrap().ino();
         let link_ino = fs::metadata(tmp.path().join("hardlink.txt")).unwrap().ino();
-        assert_eq!(orig_ino, link_ino, "hardlink must share the same inode as its target, not be a copy");
+        assert_eq!(
+            orig_ino, link_ino,
+            "hardlink must share the same inode as its target, not be a copy"
+        );
     });
 }

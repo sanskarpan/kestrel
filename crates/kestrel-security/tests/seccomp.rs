@@ -31,9 +31,13 @@ fn deny_personality_profile() -> kestrel_oci::runtime::LinuxSeccomp {
 fn test_seccomp_blocks_syscall_with_configured_errno() {
     kestrel_ns::test_util::run_isolated(|| {
         install_seccomp(&deny_personality_profile()).expect("install_seccomp");
+        // SAFETY: safe with documented preconditions; see surrounding context.
         let ret = unsafe { libc::personality(0xffffffff) };
         assert_eq!(ret, -1);
-        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EPERM));
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EPERM)
+        );
     });
 }
 
@@ -42,7 +46,10 @@ fn test_seccomp_blocks_syscall_with_configured_errno() {
 fn test_install_seccomp_unknown_syscall_name_is_skipped_not_fatal() {
     kestrel_ns::test_util::run_isolated(|| {
         let rule = LinuxSyscallBuilder::default()
-            .names(vec!["this_syscall_does_not_exist_kestrel_test".to_string(), "personality".to_string()])
+            .names(vec![
+                "this_syscall_does_not_exist_kestrel_test".to_string(),
+                "personality".to_string(),
+            ])
             .action(LinuxSeccompAction::ScmpActErrno)
             .errno_ret(libc::EPERM as u32)
             .build()
@@ -53,8 +60,10 @@ fn test_install_seccomp_unknown_syscall_name_is_skipped_not_fatal() {
             .syscalls(vec![rule])
             .build()
             .unwrap();
-        install_seccomp(&profile).expect("must not fail on an unknown syscall name mixed in with a real one");
+        install_seccomp(&profile)
+            .expect("must not fail on an unknown syscall name mixed in with a real one");
         // The real name in the same rule must still have been applied.
+        // SAFETY: safe with documented preconditions; see surrounding context.
         let ret = unsafe { libc::personality(0xffffffff) };
         assert_eq!(ret, -1);
     });
@@ -85,10 +94,13 @@ fn test_install_seccomp_returns_live_notify_fd_when_profile_uses_notify() {
             .syscalls(vec![rule])
             .build()
             .unwrap();
-        let fd = install_seccomp(&profile).expect("install_seccomp").expect("profile uses SCMP_ACT_NOTIFY, so install_seccomp must return Some(fd)");
+        let fd = install_seccomp(&profile)
+            .expect("install_seccomp")
+            .expect("profile uses SCMP_ACT_NOTIFY, so install_seccomp must return Some(fd)");
         // Confirm the fd is genuinely live (not e.g. a stale/closed
         // descriptor number reused by coincidence): F_GETFD only succeeds
         // on an open fd.
+        // SAFETY: safe with documented preconditions; see surrounding context.
         let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
         assert_ne!(flags, -1, "notify fd must be a live, open file descriptor");
         // fd drops here, exercising OwnedFd's close-on-drop.

@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 pub mod bundle;
 pub mod cli;
 pub mod create;

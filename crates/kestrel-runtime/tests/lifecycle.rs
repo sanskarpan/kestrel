@@ -203,7 +203,10 @@ fn namespaces_for_lifecycle() -> Vec<LinuxNamespace> {
 /// lifecycle namespace set (including Mount/User), an identity uid/gid
 /// map (container uid/gid 0 -> this process's real host uid/gid — root,
 /// since every test here is root-gated), and `hooks` if provided.
-fn build_spec(args: Vec<String>, hooks: Option<kestrel_oci::runtime::Hooks>) -> kestrel_oci::runtime::Spec {
+fn build_spec(
+    args: Vec<String>,
+    hooks: Option<kestrel_oci::runtime::Hooks>,
+) -> kestrel_oci::runtime::Spec {
     let uid_mapping = LinuxIdMappingBuilder::default()
         .container_id(0u32)
         .host_id(nix::unistd::getuid().as_raw())
@@ -225,7 +228,12 @@ fn build_spec(args: Vec<String>, hooks: Option<kestrel_oci::runtime::Hooks>) -> 
 
     let mut builder = SpecBuilder::default()
         .version("1.0.2")
-        .root(RootBuilder::default().path("rootfs").build().expect("build root"))
+        .root(
+            RootBuilder::default()
+                .path("rootfs")
+                .build()
+                .expect("build root"),
+        )
         .process(
             ProcessBuilder::default()
                 .args(args)
@@ -399,13 +407,22 @@ fn test_create_then_start() {
         );
         let bundle = build_bundle(bundle_dir.path(), spec);
 
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
-        assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        assert!(
+            create_result.is_ok(),
+            "create() failed: {:?}",
+            create_result.err()
+        );
 
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
         assert_eq!(created.status, Status::Created);
-        let init_pid = Pid::from_raw(created.pid.expect("state.json must carry a pid after create()"));
+        let init_pid = Pid::from_raw(
+            created
+                .pid
+                .expect("state.json must carry a pid after create()"),
+        );
         let _process_guard = ProcessGuard(init_pid);
 
         let marker_host_path = upper_path(&id, "/marker");
@@ -416,7 +433,11 @@ fn test_create_then_start() {
         );
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         // Poll for the marker's FINAL content directly, not merely its
         // existence: `std::fs::write` in the fixture is `open(O_CREAT|
@@ -432,9 +453,16 @@ fn test_create_then_start() {
         // occasionally land on a poll tick. Polling for the CONTENT itself
         // makes this robust regardless of how fast the container runs.
         let content = poll_until_some(Duration::from_secs(20), || {
-            std::fs::read(&marker_host_path).ok().filter(|c| !c.is_empty())
+            std::fs::read(&marker_host_path)
+                .ok()
+                .filter(|c| !c.is_empty())
         })
-        .unwrap_or_else(|| panic!("marker file never appeared with readable content at {}", marker_host_path.display()));
+        .unwrap_or_else(|| {
+            panic!(
+                "marker file never appeared with readable content at {}",
+                marker_host_path.display()
+            )
+        });
         assert_eq!(content, b"ran", "marker file has unexpected content");
 
         // Full lifecycle proof + cleanup: wait for the fixture's natural
@@ -443,11 +471,20 @@ fn test_create_then_start() {
         // why this test process must do this itself), then delete().
         let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(20))
             .expect("container never reached Status::Stopped");
-        assert_eq!(stopped.exit_code, Some(0), "unexpected exit_code: {stopped:?}");
+        assert_eq!(
+            stopped.exit_code,
+            Some(0),
+            "unexpected exit_code: {stopped:?}"
+        );
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         cleanup_synthetic_layer(&id);
     });
@@ -469,8 +506,13 @@ fn test_exit_code_propagates() {
         let spec = build_spec(vec!["/fixture".into(), "exit".into(), "42".into()], None);
         let bundle = build_bundle(bundle_dir.path(), spec);
 
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
-        assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        assert!(
+            create_result.is_ok(),
+            "create() failed: {:?}",
+            create_result.err()
+        );
 
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
@@ -478,7 +520,11 @@ fn test_exit_code_propagates() {
         let _process_guard = ProcessGuard(init_pid);
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(20))
             .expect("container never reached Status::Stopped");
@@ -490,8 +536,13 @@ fn test_exit_code_propagates() {
 
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         cleanup_synthetic_layer(&id);
     });
@@ -513,8 +564,13 @@ fn test_signal_exit_code() {
         let spec = build_spec(vec!["/fixture".into(), "sleep".into(), "30".into()], None);
         let bundle = build_bundle(bundle_dir.path(), spec);
 
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
-        assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        assert!(
+            create_result.is_ok(),
+            "create() failed: {:?}",
+            create_result.err()
+        );
 
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
@@ -522,7 +578,11 @@ fn test_signal_exit_code() {
         let _process_guard = ProcessGuard(init_pid);
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         // `kill.rs`'s non-`--all` path signals whatever pid is CURRENTLY
         // recorded in state.json. `kestrel-init` (this file's fix, see
@@ -553,7 +613,11 @@ fn test_signal_exit_code() {
 
         let kill_result =
             kestrel_runtime::kill::kill(&id, run_dir.path(), &data_dir(), Signal::SIGKILL, false);
-        assert!(kill_result.is_ok(), "kill() failed: {:?}", kill_result.err());
+        assert!(
+            kill_result.is_ok(),
+            "kill() failed: {:?}",
+            kill_result.err()
+        );
 
         let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(20))
             .expect("container never reached Status::Stopped after SIGKILL");
@@ -565,8 +629,13 @@ fn test_signal_exit_code() {
 
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         cleanup_synthetic_layer(&id);
     });
@@ -598,19 +667,28 @@ fn test_zombie_reaping() {
         );
         let bundle = build_bundle(bundle_dir.path(), spec);
 
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
-        assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        assert!(
+            create_result.is_ok(),
+            "create() failed: {:?}",
+            create_result.err()
+        );
 
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
         let init_pid = Pid::from_raw(created.pid.expect("pid recorded after create()"));
         let _process_guard = ProcessGuard(init_pid);
 
-        let cgroup =
-            kestrel_cgroup::manager::CgroupManager::new(data_dir().join("cgroups"), &id).expect("cgroup manager");
+        let cgroup = kestrel_cgroup::manager::CgroupManager::new(data_dir().join("cgroups"), &id)
+            .expect("cgroup manager");
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         // ---- rise: wait for the fixture to report how many children it
         // actually achieved (its fork loop can fail partway, e.g. under
@@ -627,8 +705,13 @@ fn test_zombie_reaping() {
             .trim()
             .parse()
             .expect("spawn-count file did not contain a plain integer");
-        assert!(achieved > 0, "fixture achieved 0 forked children — nothing to reap");
-        eprintln!("test_zombie_reaping: fixture achieved {achieved}/{SPAWN_TARGET} forked children");
+        assert!(
+            achieved > 0,
+            "fixture achieved 0 forked children — nothing to reap"
+        );
+        eprintln!(
+            "test_zombie_reaping: fixture achieved {achieved}/{SPAWN_TARGET} forked children"
+        );
 
         // While the fixture is still in its 2-second post-spawn sleep,
         // every one of `achieved` children is a zombie parented to the
@@ -637,7 +720,10 @@ fn test_zombie_reaping() {
         // the SAME cgroup (cgroup membership is unaffected by
         // reparenting) — so `pids.current` must already reflect them.
         let risen = poll_until(Duration::from_secs(3), || {
-            cgroup.pids_current().map(|n| n > achieved as u64).unwrap_or(false)
+            cgroup
+                .pids_current()
+                .map(|n| n > achieved as u64)
+                .unwrap_or(false)
         });
         let pids_while_alive = cgroup.pids_current().unwrap_or(0);
         assert!(
@@ -652,9 +738,14 @@ fn test_zombie_reaping() {
         // via drain_dead_children) must drain all of them — pids.current
         // must fall back to a low baseline (kestrel-init alone, or 0 once
         // kestrel-init itself has also exited and been reaped). ----
-        let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(30))
-            .expect("container never reached Status::Stopped after the fixture's spawn-abandon run");
-        assert_eq!(stopped.exit_code, Some(0), "unexpected exit_code: {stopped:?}");
+        let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(30)).expect(
+            "container never reached Status::Stopped after the fixture's spawn-abandon run",
+        );
+        assert_eq!(
+            stopped.exit_code,
+            Some(0),
+            "unexpected exit_code: {stopped:?}"
+        );
 
         let fell = poll_until(Duration::from_secs(10), || {
             cgroup.pids_current().map(|n| n <= 1).unwrap_or(false)
@@ -673,8 +764,13 @@ fn test_zombie_reaping() {
 
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         cleanup_synthetic_layer(&id);
     });
@@ -708,7 +804,11 @@ fn host_echo_hook(log_path: &Path, phase: &str) -> kestrel_oci::runtime::Hook {
 /// caller knows `data_dir()`/`id` at hook-build time — see this
 /// function's own comments for why `startContainer` can't reach
 /// `log_path` directly).
-fn build_test5_hooks(log_path: &Path, inner_container_path: &str, inner_host_path: &Path) -> kestrel_oci::runtime::Hooks {
+fn build_test5_hooks(
+    log_path: &Path,
+    inner_container_path: &str,
+    inner_host_path: &Path,
+) -> kestrel_oci::runtime::Hooks {
     // `createRuntime` (`kestrel-runtime`, host-side, runs synchronously
     // and completes before `create()` ever returns) and `createContainer`
     // (`kestrel-init`, but BEFORE `pivot_root` completes — SPEC.md §9.3's
@@ -795,11 +895,19 @@ fn test_hooks_fire_in_order() {
         let inner_host_path = upper_path(&id, inner_container_path);
 
         let hooks = build_test5_hooks(&log_path, inner_container_path, &inner_host_path);
-        let spec = build_spec(vec!["/fixture".into(), "exit".into(), "0".into()], Some(hooks));
+        let spec = build_spec(
+            vec!["/fixture".into(), "exit".into(), "0".into()],
+            Some(hooks),
+        );
         let bundle = build_bundle(bundle_dir.path(), spec);
 
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
-        assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        assert!(
+            create_result.is_ok(),
+            "create() failed: {:?}",
+            create_result.err()
+        );
 
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
@@ -816,7 +924,11 @@ fn test_hooks_fire_in_order() {
         );
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         // Wait for the trivial `exit 0` entrypoint to run and exit
         // naturally, and for poststart's own wait-loop (bounded at ~5s)
@@ -826,17 +938,32 @@ fn test_hooks_fire_in_order() {
         // wait for startContainer's marker) has already completed.
         let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(20))
             .expect("container never reached Status::Stopped");
-        assert_eq!(stopped.exit_code, Some(0), "unexpected exit_code: {stopped:?}");
+        assert_eq!(
+            stopped.exit_code,
+            Some(0),
+            "unexpected exit_code: {stopped:?}"
+        );
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         let final_content = std::fs::read_to_string(&log_path).expect("read final hooks.log");
         let lines: Vec<&str> = final_content.lines().collect();
         assert_eq!(
             lines,
-            vec!["createRuntime", "createContainer", "startContainer", "poststart", "poststop"],
+            vec![
+                "createRuntime",
+                "createContainer",
+                "startContainer",
+                "poststart",
+                "poststop"
+            ],
             "hooks did not fire in the expected order; full log content: {final_content:?}"
         );
 

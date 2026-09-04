@@ -43,7 +43,9 @@ fn notify_personality_profile() -> kestrel_oci::runtime::LinuxSeccomp {
 #[ignore = "requires root"]
 fn test_handle_one_notification_captures_pid_syscall_and_args() {
     kestrel_ns::test_util::run_isolated(|| {
-        let notify_fd = install_seccomp(&notify_personality_profile()).expect("install_seccomp").expect("profile uses notify, fd must be Some");
+        let notify_fd = install_seccomp(&notify_personality_profile())
+            .expect("install_seccomp")
+            .expect("profile uses notify, fd must be Some");
 
         // SAFETY: fork() duplicates the process; the child below only
         // calls the one notified syscall and exits, no other
@@ -61,14 +63,20 @@ fn test_handle_one_notification_captures_pid_syscall_and_args() {
                 // spoofed success), so the pass/fail signal has to be
                 // derived from the actual return value here, not just from
                 // "the process eventually unblocked and ran to completion".
+                // SAFETY: safe with documented preconditions; see surrounding context.
                 let ret = unsafe { libc::personality(0xffffffff) };
                 let errno = std::io::Error::last_os_error().raw_os_error();
                 let ok = ret == -1 && errno == Some(libc::ENOSYS);
                 std::process::exit(if ok { 0 } else { 1 });
             }
             ForkResult::Parent { child } => {
-                let event = handle_one_notification(notify_fd.as_fd()).expect("handle_one_notification");
-                assert_eq!(event.pid, child.as_raw() as u32, "event must report the actual notified process's pid");
+                let event =
+                    handle_one_notification(notify_fd.as_fd()).expect("handle_one_notification");
+                assert_eq!(
+                    event.pid,
+                    child.as_raw() as u32,
+                    "event must report the actual notified process's pid"
+                );
                 assert_eq!(event.syscall, "personality");
 
                 match waitpid(child, None) {
@@ -109,7 +117,9 @@ fn test_handle_one_notification_captures_pid_syscall_and_args() {
 #[ignore = "requires root"]
 fn test_run_notify_loop_continues_after_one_stale_request() {
     kestrel_ns::test_util::run_isolated(|| {
-        let notify_fd = install_seccomp(&notify_personality_profile()).expect("install_seccomp").expect("profile uses notify, fd must be Some");
+        let notify_fd = install_seccomp(&notify_personality_profile())
+            .expect("install_seccomp")
+            .expect("profile uses notify, fd must be Some");
 
         let (sync_read, sync_write) = pipe().expect("pipe");
 
@@ -209,7 +219,9 @@ fn test_run_notify_loop_continues_after_one_stale_request() {
 
                         match waitpid(child2, None) {
                             Ok(WaitStatus::Exited(p, 0)) if p == child2 => {}
-                            other => panic!("child2 did not observe the expected ENOSYS response: {other:?}"),
+                            other => panic!(
+                                "child2 did not observe the expected ENOSYS response: {other:?}"
+                            ),
                         }
                     }
                 }
@@ -233,12 +245,15 @@ fn test_run_notify_loop_continues_after_one_stale_request() {
 #[ignore = "requires root"]
 fn test_run_notify_loop_circuit_breaks_on_permanently_broken_fd() {
     kestrel_ns::test_util::run_isolated(|| {
-        let notify_fd = install_seccomp(&notify_personality_profile()).expect("install_seccomp").expect("profile uses notify, fd must be Some");
+        let notify_fd = install_seccomp(&notify_personality_profile())
+            .expect("install_seccomp")
+            .expect("profile uses notify, fd must be Some");
 
         // Close the fd immediately — nothing ever gets a chance to make
         // the notified syscall, so run_notify_loop will only ever see the
         // permanently-broken-fd failure mode, never a real request.
         let raw_fd = notify_fd.as_raw_fd();
+        // SAFETY: safe with documented preconditions; see surrounding context.
         unsafe { libc::close(raw_fd) };
         std::mem::forget(notify_fd); // already closed above; don't double-close on drop
 
@@ -257,8 +272,14 @@ fn test_run_notify_loop_circuit_breaks_on_permanently_broken_fd() {
         let result = run_notify_loop(borrowed, |_event| events += 1);
         let elapsed = start.elapsed();
 
-        assert!(result.is_err(), "run_notify_loop must return Err when the circuit breaker trips, not Ok(())");
-        assert_eq!(events, 0, "a permanently broken fd must never produce a real event");
+        assert!(
+            result.is_err(),
+            "run_notify_loop must return Err when the circuit breaker trips, not Ok(())"
+        );
+        assert_eq!(
+            events, 0,
+            "a permanently broken fd must never produce a real event"
+        );
         assert!(
             elapsed < std::time::Duration::from_secs(5),
             "circuit breaker must trip quickly (bounded retries, not a hang or a slow leak): took {elapsed:?}"

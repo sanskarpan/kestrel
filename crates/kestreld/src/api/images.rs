@@ -129,7 +129,9 @@ fn named_images_lock() -> &'static Mutex<()> {
 fn read_named_images(data_dir: &Path) -> anyhow::Result<NamedImages> {
     let path = named_images_path(data_dir);
     match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display())),
+        Ok(bytes) => {
+            serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
         Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
     }
@@ -142,11 +144,14 @@ fn read_named_images(data_dir: &Path) -> anyhow::Result<NamedImages> {
 fn write_named_images(data_dir: &Path, images: &NamedImages) -> anyhow::Result<()> {
     let path = named_images_path(data_dir);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
     }
     let tmp = path.with_file_name(format!(".named-images.json.tmp.{}", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(images)?).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).with_context(|| format!("renaming {} to {}", tmp.display(), path.display()))?;
+    std::fs::write(&tmp, serde_json::to_vec_pretty(images)?)
+        .with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), path.display()))?;
     Ok(())
 }
 
@@ -160,7 +165,12 @@ fn write_named_images(data_dir: &Path, images: &NamedImages) -> anyhow::Result<(
 /// untagged/undigested reference defaults to `:latest`, mirroring
 /// `ImageReference::manifest_reference`'s own identical default.
 fn canonical_ref_string(r: &ImageReference) -> String {
-    format!("{}/{}:{}", r.registry, r.repository, r.tag.clone().unwrap_or_else(|| "latest".to_string()))
+    format!(
+        "{}/{}:{}",
+        r.registry,
+        r.repository,
+        r.tag.clone().unwrap_or_else(|| "latest".to_string())
+    )
 }
 
 /// A filesystem-safe encoding of a canonical reference string, used as
@@ -174,17 +184,28 @@ fn canonical_ref_string(r: &ImageReference) -> String {
 /// `kestrel_rootfs::snapshot`'s own `sanitize_chain_id` precedent (replace
 /// anything that isn't ASCII-alphanumeric).
 fn sanitize_owner_id(reference: &str) -> String {
-    reference.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
+    reference
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn read_manifest(store: &ContentStore, digest: &Digest) -> anyhow::Result<ImageManifest> {
-    let bytes = std::fs::read(store.blob_path(digest)).with_context(|| format!("reading manifest blob {digest}"))?;
+    let bytes = std::fs::read(store.blob_path(digest))
+        .with_context(|| format!("reading manifest blob {digest}"))?;
     serde_json::from_slice(&bytes).with_context(|| format!("parsing manifest JSON for {digest}"))
 }
 
 fn lookup_named_image(data_dir: &Path, raw_ref: &str) -> Result<(String, NamedImage), AppError> {
-    let reference = reference::parse(raw_ref)
-        .map_err(|e| AppError::bad_request(format!("invalid image reference {raw_ref:?}: {e:#}")))?;
+    let reference = reference::parse(raw_ref).map_err(|e| {
+        AppError::bad_request(format!("invalid image reference {raw_ref:?}: {e:#}"))
+    })?;
     let canonical = canonical_ref_string(&reference);
     let images = read_named_images(data_dir).map_err(AppError::from)?;
     let named = images
@@ -207,8 +228,11 @@ fn dir_size(dir: &Path) -> anyhow::Result<u64> {
     }
     let mut total = 0u64;
     for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        let entry = entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
-        let file_type = entry.file_type().with_context(|| format!("reading file type of {}", entry.path().display()))?;
+        let entry =
+            entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type of {}", entry.path().display()))?;
         if file_type.is_dir() {
             total += dir_size(&entry.path())?;
         } else if file_type.is_file() {
@@ -238,30 +262,62 @@ pub struct PullRequest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 enum PullProgressWire {
-    ManifestFetched { digest: String },
-    LayerStart { digest: String, index: usize, total: usize },
-    LayerDeduped { digest: String },
-    LayerDownloaded { digest: String, bytes: u64 },
-    LayerExtracted { digest: String, chain_id: String },
-    Complete { chain_ids: Vec<String> },
-    Error { message: String },
+    ManifestFetched {
+        digest: String,
+    },
+    LayerStart {
+        digest: String,
+        index: usize,
+        total: usize,
+    },
+    LayerDeduped {
+        digest: String,
+    },
+    LayerDownloaded {
+        digest: String,
+        bytes: u64,
+    },
+    LayerExtracted {
+        digest: String,
+        chain_id: String,
+    },
+    Complete {
+        chain_ids: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 impl From<&PullProgress> for PullProgressWire {
     fn from(p: &PullProgress) -> Self {
         match p {
-            PullProgress::ManifestFetched { digest } => PullProgressWire::ManifestFetched { digest: digest.to_string() },
-            PullProgress::LayerStart { digest, index, total } => {
-                PullProgressWire::LayerStart { digest: digest.to_string(), index: *index, total: *total }
-            }
-            PullProgress::LayerDeduped { digest } => PullProgressWire::LayerDeduped { digest: digest.to_string() },
-            PullProgress::LayerDownloaded { digest, bytes } => {
-                PullProgressWire::LayerDownloaded { digest: digest.to_string(), bytes: *bytes }
-            }
-            PullProgress::LayerExtracted { digest, chain_id } => {
-                PullProgressWire::LayerExtracted { digest: digest.to_string(), chain_id: chain_id.clone() }
-            }
-            PullProgress::Complete { chain_ids } => PullProgressWire::Complete { chain_ids: chain_ids.clone() },
+            PullProgress::ManifestFetched { digest } => PullProgressWire::ManifestFetched {
+                digest: digest.to_string(),
+            },
+            PullProgress::LayerStart {
+                digest,
+                index,
+                total,
+            } => PullProgressWire::LayerStart {
+                digest: digest.to_string(),
+                index: *index,
+                total: *total,
+            },
+            PullProgress::LayerDeduped { digest } => PullProgressWire::LayerDeduped {
+                digest: digest.to_string(),
+            },
+            PullProgress::LayerDownloaded { digest, bytes } => PullProgressWire::LayerDownloaded {
+                digest: digest.to_string(),
+                bytes: *bytes,
+            },
+            PullProgress::LayerExtracted { digest, chain_id } => PullProgressWire::LayerExtracted {
+                digest: digest.to_string(),
+                chain_id: chain_id.clone(),
+            },
+            PullProgress::Complete { chain_ids } => PullProgressWire::Complete {
+                chain_ids: chain_ids.clone(),
+            },
         }
     }
 }
@@ -274,11 +330,23 @@ impl From<&PullProgress> for PullProgressWire {
 fn describe_progress(p: &PullProgress) -> String {
     match p {
         PullProgress::ManifestFetched { digest } => format!("manifest fetched: {digest}"),
-        PullProgress::LayerStart { digest, index, total } => format!("layer {}/{total} starting: {digest}", index + 1),
-        PullProgress::LayerDeduped { digest } => format!("layer already present, deduped: {digest}"),
-        PullProgress::LayerDownloaded { digest, bytes } => format!("layer downloaded: {digest} ({bytes} bytes)"),
-        PullProgress::LayerExtracted { digest, chain_id } => format!("layer extracted: {digest} -> {chain_id}"),
-        PullProgress::Complete { chain_ids } => format!("pull complete: {} layers", chain_ids.len()),
+        PullProgress::LayerStart {
+            digest,
+            index,
+            total,
+        } => format!("layer {}/{total} starting: {digest}", index + 1),
+        PullProgress::LayerDeduped { digest } => {
+            format!("layer already present, deduped: {digest}")
+        }
+        PullProgress::LayerDownloaded { digest, bytes } => {
+            format!("layer downloaded: {digest} ({bytes} bytes)")
+        }
+        PullProgress::LayerExtracted { digest, chain_id } => {
+            format!("layer extracted: {digest} -> {chain_id}")
+        }
+        PullProgress::Complete { chain_ids } => {
+            format!("pull complete: {} layers", chain_ids.len())
+        }
     }
 }
 
@@ -292,8 +360,12 @@ pub async fn pull_image_endpoint(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PullRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, AppError> {
-    let reference = reference::parse(&req.reference)
-        .map_err(|e| AppError::bad_request(format!("invalid image reference {:?}: {e:#}", req.reference)))?;
+    let reference = reference::parse(&req.reference).map_err(|e| {
+        AppError::bad_request(format!(
+            "invalid image reference {:?}: {e:#}",
+            req.reference
+        ))
+    })?;
     let canonical = canonical_ref_string(&reference);
 
     let (tx, rx) = mpsc::unbounded_channel::<PullProgressWire>();
@@ -338,18 +410,36 @@ fn pull_progress_stream(
 /// why this duplicates (rather than reuses) `pull_image_with_client`'s own
 /// internal index-resolution steps, using only `kestrel-image`'s already-
 /// public helpers.
-async fn resolve_final_manifest(client: &RegistryClient, reference: &ImageReference) -> anyhow::Result<(Digest, Vec<u8>)> {
-    let (bytes, digest, media_type) = client.fetch_manifest_bytes(reference).await.context("fetching manifest")?;
+async fn resolve_final_manifest(
+    client: &RegistryClient,
+    reference: &ImageReference,
+) -> anyhow::Result<(Digest, Vec<u8>)> {
+    let (bytes, digest, media_type) = client
+        .fetch_manifest_bytes(reference)
+        .await
+        .context("fetching manifest")?;
     if !is_index_media_type(&media_type) {
         return Ok((digest, bytes));
     }
 
-    let index: ImageIndex = serde_json::from_slice(&bytes).context("parsing manifest as an index")?;
-    let selected = select_platform(&index, "linux", docker_platform_arch(std::env::consts::ARCH), None)?;
-    let selected_digest: Digest =
-        selected.digest().to_string().parse().context("parsing selected manifest's digest")?;
+    let index: ImageIndex =
+        serde_json::from_slice(&bytes).context("parsing manifest as an index")?;
+    let selected = select_platform(
+        &index,
+        "linux",
+        docker_platform_arch(std::env::consts::ARCH),
+        None,
+    )?;
+    let selected_digest: Digest = selected
+        .digest()
+        .to_string()
+        .parse()
+        .context("parsing selected manifest's digest")?;
     let (resolved_bytes, resolved_digest, _media_type) = client
-        .fetch_manifest_bytes(&ImageReference { digest: Some(selected_digest.clone()), ..reference.clone() })
+        .fetch_manifest_bytes(&ImageReference {
+            digest: Some(selected_digest.clone()),
+            ..reference.clone()
+        })
         .await
         .context("fetching selected platform manifest")?;
     anyhow::ensure!(
@@ -382,7 +472,9 @@ async fn run_pull_and_report(
     let client = match RegistryClient::new() {
         Ok(c) => Arc::new(c),
         Err(e) => {
-            let _ = tx.send(PullProgressWire::Error { message: format!("building registry client: {e:#}") });
+            let _ = tx.send(PullProgressWire::Error {
+                message: format!("building registry client: {e:#}"),
+            });
             return;
         }
     };
@@ -390,13 +482,18 @@ async fn run_pull_and_report(
     let (final_digest, manifest_bytes) = match resolve_final_manifest(&client, &reference).await {
         Ok(v) => v,
         Err(e) => {
-            let _ = tx.send(PullProgressWire::Error { message: format!("resolving manifest: {e:#}") });
+            let _ = tx.send(PullProgressWire::Error {
+                message: format!("resolving manifest: {e:#}"),
+            });
             return;
         }
     };
     // Pin the pull to the exact digest just resolved — see
     // `resolve_final_manifest`'s own doc comment for why.
-    let pinned_reference = ImageReference { digest: Some(final_digest.clone()), ..reference };
+    let pinned_reference = ImageReference {
+        digest: Some(final_digest.clone()),
+        ..reference
+    };
 
     let tx_cb = tx.clone();
     let bus_cb = event_bus.clone();
@@ -406,30 +503,55 @@ async fn run_pull_and_report(
         let _ = tx_cb.send(wire);
         match &progress {
             PullProgress::Complete { .. } => {
-                events::publish(&bus_cb, Event::ImagePullDone { reference: raw_ref_cb.clone() });
+                events::publish(
+                    &bus_cb,
+                    Event::ImagePullDone {
+                        reference: raw_ref_cb.clone(),
+                    },
+                );
             }
             other => {
                 events::publish(
                     &bus_cb,
-                    Event::ImagePullProgress { reference: raw_ref_cb.clone(), detail: describe_progress(other) },
+                    Event::ImagePullProgress {
+                        reference: raw_ref_cb.clone(),
+                        detail: describe_progress(other),
+                    },
                 );
             }
         }
     };
 
-    let result = pull_image_with_client(client, &pinned_reference, &store, &layer_store, false, on_progress).await;
+    let result = pull_image_with_client(
+        client,
+        &pinned_reference,
+        &store,
+        &layer_store,
+        false,
+        on_progress,
+    )
+    .await;
 
     match result {
         Ok(chain_ids) => {
-            if let Err(e) = record_pulled_image(&data_dir, &store, &canonical, &final_digest, &manifest_bytes, &chain_ids)
-            {
+            if let Err(e) = record_pulled_image(
+                &data_dir,
+                &store,
+                &canonical,
+                &final_digest,
+                &manifest_bytes,
+                &chain_ids,
+            ) {
                 tracing::warn!(error = %e, canonical, "pull succeeded but recording named-image bookkeeping failed");
-                let _ =
-                    tx.send(PullProgressWire::Error { message: format!("pull succeeded but bookkeeping failed: {e:#}") });
+                let _ = tx.send(PullProgressWire::Error {
+                    message: format!("pull succeeded but bookkeeping failed: {e:#}"),
+                });
             }
         }
         Err(e) => {
-            let _ = tx.send(PullProgressWire::Error { message: format!("{e:#}") });
+            let _ = tx.send(PullProgressWire::Error {
+                message: format!("{e:#}"),
+            });
         }
     }
 }
@@ -478,7 +600,8 @@ fn record_pulled_image(
     manifest_bytes: &[u8],
     chain_ids: &[String],
 ) -> anyhow::Result<()> {
-    let manifest: ImageManifest = serde_json::from_slice(manifest_bytes).context("parsing resolved manifest")?;
+    let manifest: ImageManifest =
+        serde_json::from_slice(manifest_bytes).context("parsing resolved manifest")?;
     let owner = sanitize_owner_id(canonical);
 
     // Every digest this pull needs ref'd, in the order they'll be added —
@@ -488,9 +611,22 @@ fn record_pulled_image(
     // even attempted.
     let mut digests_to_ref = Vec::with_capacity(2 + manifest.layers().len());
     digests_to_ref.push(manifest_digest.clone());
-    digests_to_ref.push(manifest.config().digest().to_string().parse().context("parsing config digest")?);
+    digests_to_ref.push(
+        manifest
+            .config()
+            .digest()
+            .to_string()
+            .parse()
+            .context("parsing config digest")?,
+    );
     for layer in manifest.layers() {
-        digests_to_ref.push(layer.digest().to_string().parse().context("parsing layer digest")?);
+        digests_to_ref.push(
+            layer
+                .digest()
+                .to_string()
+                .parse()
+                .context("parsing layer digest")?,
+        );
     }
 
     let mut added: Vec<Digest> = Vec::with_capacity(digests_to_ref.len());
@@ -502,7 +638,9 @@ fn record_pulled_image(
         added.push(digest.clone());
     }
 
-    let _guard = named_images_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = named_images_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut images = match read_named_images(data_dir) {
         Ok(images) => images,
         Err(e) => {
@@ -511,7 +649,13 @@ fn record_pulled_image(
             return Err(e);
         }
     };
-    images.insert(canonical.to_string(), NamedImage { manifest_digest: manifest_digest.to_string(), chain_ids: chain_ids.to_vec() });
+    images.insert(
+        canonical.to_string(),
+        NamedImage {
+            manifest_digest: manifest_digest.to_string(),
+            chain_ids: chain_ids.to_vec(),
+        },
+    );
     if let Err(e) = write_named_images(data_dir, &images) {
         drop(_guard);
         rollback_added_refs(store, &owner, canonical, &added);
@@ -549,7 +693,9 @@ pub struct ImagesListResponse {
 /// images" API exists anywhere in `kestrel-image` to call instead), each
 /// entry backed by a real read of its manifest blob straight out of the
 /// content store.
-pub async fn list_images(State(state): State<Arc<AppState>>) -> Result<Json<ImagesListResponse>, AppError> {
+pub async fn list_images(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ImagesListResponse>, AppError> {
     let data_dir = state.data_dir.clone();
     let response = tokio::task::spawn_blocking(move || list_images_blocking(&data_dir))
         .await
@@ -565,8 +711,15 @@ pub async fn list_images(State(state): State<Arc<AppState>>) -> Result<Json<Imag
 /// aborting the whole listing, the same "degrade gracefully per item"
 /// convention `api::introspect::scan_system_namespaces` (Task 19) already
 /// established for `GET /system/namespaces`'s own per-pid errors.
-fn resolve_image_summary(store: &ContentStore, reference: &str, named: &NamedImage) -> anyhow::Result<ImageSummary> {
-    let manifest_digest: Digest = named.manifest_digest.parse().with_context(|| format!("bad digest for {reference}"))?;
+fn resolve_image_summary(
+    store: &ContentStore,
+    reference: &str,
+    named: &NamedImage,
+) -> anyhow::Result<ImageSummary> {
+    let manifest_digest: Digest = named
+        .manifest_digest
+        .parse()
+        .with_context(|| format!("bad digest for {reference}"))?;
     let manifest = read_manifest(store, &manifest_digest)?;
     let size_bytes: u64 = manifest.layers().iter().map(|d| d.size()).sum();
     Ok(ImageSummary {
@@ -629,7 +782,10 @@ pub struct ImageDetail {
 fn image_detail_blocking(data_dir: &Path, raw_ref: &str) -> Result<ImageDetail, AppError> {
     let (canonical, named) = lookup_named_image(data_dir, raw_ref)?;
     let store = ContentStore::new(data_dir.to_path_buf());
-    let manifest_digest: Digest = named.manifest_digest.parse().map_err(|e: anyhow::Error| AppError::internal(format!("{e:#}")))?;
+    let manifest_digest: Digest = named
+        .manifest_digest
+        .parse()
+        .map_err(|e: anyhow::Error| AppError::internal(format!("{e:#}")))?;
     let manifest = read_manifest(&store, &manifest_digest).map_err(AppError::from)?;
     let config_digest = manifest.config().digest().to_string();
 
@@ -651,7 +807,12 @@ fn image_detail_blocking(data_dir: &Path, raw_ref: &str) -> Result<ImageDetail, 
         })
         .collect();
 
-    Ok(ImageDetail { reference: canonical, manifest_digest: named.manifest_digest, config_digest, layers })
+    Ok(ImageDetail {
+        reference: canonical,
+        manifest_digest: named.manifest_digest,
+        config_digest,
+        layers,
+    })
 }
 
 /// `GET /images/:ref` — manifest + config digest + layer list, via a real
@@ -682,7 +843,9 @@ pub async fn get_image_layers(
     let detail = tokio::task::spawn_blocking(move || image_detail_blocking(&data_dir, &raw_ref))
         .await
         .map_err(|e| AppError::internal(format!("images: layers task panicked: {e}")))??;
-    Ok(Json(LayersResponse { layers: detail.layers }))
+    Ok(Json(LayersResponse {
+        layers: detail.layers,
+    }))
 }
 
 // ===========================================================================
@@ -720,7 +883,10 @@ pub async fn delete_image(
 fn delete_image_blocking(data_dir: &Path, raw_ref: &str) -> Result<DeleteImageResponse, AppError> {
     let (canonical, named) = lookup_named_image(data_dir, raw_ref)?;
     let store = ContentStore::new(data_dir.to_path_buf());
-    let manifest_digest: Digest = named.manifest_digest.parse().map_err(|e: anyhow::Error| AppError::internal(format!("{e:#}")))?;
+    let manifest_digest: Digest = named
+        .manifest_digest
+        .parse()
+        .map_err(|e: anyhow::Error| AppError::internal(format!("{e:#}")))?;
     let manifest = read_manifest(&store, &manifest_digest).map_err(AppError::from)?;
     let config_digest: Digest = manifest
         .config()
@@ -745,17 +911,25 @@ fn delete_image_blocking(data_dir: &Path, raw_ref: &str) -> Result<DeleteImageRe
     }
     let mut blobs_removed = Vec::new();
     for digest in &all_digests {
-        if store.remove_blob_if_unreferenced(digest).map_err(AppError::from)? {
+        if store
+            .remove_blob_if_unreferenced(digest)
+            .map_err(AppError::from)?
+        {
             blobs_removed.push(digest.to_string());
         }
     }
 
-    let _guard = named_images_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = named_images_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut images = read_named_images(data_dir).map_err(AppError::from)?;
     images.remove(&canonical);
     write_named_images(data_dir, &images).map_err(AppError::from)?;
 
-    Ok(DeleteImageResponse { reference: canonical, blobs_removed })
+    Ok(DeleteImageResponse {
+        reference: canonical,
+        blobs_removed,
+    })
 }
 
 // ===========================================================================
@@ -786,7 +960,9 @@ pub struct DedupResponse {
     pub unique_blobs: usize,
 }
 
-pub async fn get_dedup(State(state): State<Arc<AppState>>) -> Result<Json<DedupResponse>, AppError> {
+pub async fn get_dedup(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<DedupResponse>, AppError> {
     let data_dir = state.data_dir.clone();
     let response = tokio::task::spawn_blocking(move || dedup_blocking(&data_dir))
         .await
@@ -803,17 +979,34 @@ pub async fn get_dedup(State(state): State<Arc<AppState>>) -> Result<Json<DedupR
 /// mid-manifest failure): a half-collected entry would either under-count
 /// `unique_blobs` or silently mix in a `logical_bytes` contribution from an
 /// entry that otherwise got skipped, both worse than a clean skip.
-fn resolve_dedup_entry(store: &ContentStore, layer_store: &LayerStore, named: &NamedImage) -> anyhow::Result<(Vec<Digest>, u64)> {
-    let manifest_digest: Digest = named.manifest_digest.parse().context("parsing manifest digest")?;
+fn resolve_dedup_entry(
+    store: &ContentStore,
+    layer_store: &LayerStore,
+    named: &NamedImage,
+) -> anyhow::Result<(Vec<Digest>, u64)> {
+    let manifest_digest: Digest = named
+        .manifest_digest
+        .parse()
+        .context("parsing manifest digest")?;
     let manifest = read_manifest(store, &manifest_digest)?;
-    let config_digest: Digest =
-        manifest.config().digest().to_string().parse().context("parsing config digest")?;
+    let config_digest: Digest = manifest
+        .config()
+        .digest()
+        .to_string()
+        .parse()
+        .context("parsing config digest")?;
 
     let mut digests = Vec::with_capacity(2 + manifest.layers().len());
     digests.push(manifest_digest);
     digests.push(config_digest);
     for layer in manifest.layers() {
-        digests.push(layer.digest().to_string().parse().context("parsing layer digest")?);
+        digests.push(
+            layer
+                .digest()
+                .to_string()
+                .parse()
+                .context("parsing layer digest")?,
+        );
     }
 
     let mut logical_bytes = 0u64;
@@ -866,7 +1059,12 @@ fn dedup_blocking(data_dir: &Path) -> Result<DedupResponse, AppError> {
         }
     }
 
-    Ok(DedupResponse { logical_bytes, physical_bytes, images: resolved_images, unique_blobs: unique_digests.len() })
+    Ok(DedupResponse {
+        logical_bytes,
+        physical_bytes,
+        images: resolved_images,
+        unique_blobs: unique_digests.len(),
+    })
 }
 
 #[cfg(test)]
@@ -899,24 +1097,54 @@ mod tests {
     }
 
     async fn get_json(app: axum::Router, uri: &str) -> (StatusCode, serde_json::Value) {
-        let request = Request::builder().method("GET").uri(uri).body(Body::empty()).unwrap();
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
-        let value = if bytes.is_empty() { serde_json::Value::Null } else { serde_json::from_slice(&bytes).expect("parse JSON") };
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
+        let value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).expect("parse JSON")
+        };
         (status, value)
     }
 
     async fn delete_json(app: axum::Router, uri: &str) -> (StatusCode, serde_json::Value) {
-        let request = Request::builder().method("DELETE").uri(uri).body(Body::empty()).unwrap();
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
-        let value = if bytes.is_empty() { serde_json::Value::Null } else { serde_json::from_slice(&bytes).expect("parse JSON") };
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
+        let value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).expect("parse JSON")
+        };
         (status, value)
     }
 
-    async fn post_json(app: axum::Router, uri: &str, body: serde_json::Value) -> (StatusCode, Vec<u8>) {
+    async fn post_json(
+        app: axum::Router,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, Vec<u8>) {
         let request = Request::builder()
             .method("POST")
             .uri(uri)
@@ -925,7 +1153,12 @@ mod tests {
             .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
         (status, bytes.to_vec())
     }
 
@@ -947,7 +1180,10 @@ mod tests {
     #[test]
     fn test_sanitize_owner_id_strips_path_separators() {
         let sanitized = sanitize_owner_id("docker.io/library/alpine:latest");
-        assert!(!sanitized.contains('/'), "sanitized owner id must not contain a path separator: {sanitized:?}");
+        assert!(
+            !sanitized.contains('/'),
+            "sanitized owner id must not contain a path separator: {sanitized:?}"
+        );
         assert!(!sanitized.contains(':'));
     }
 
@@ -957,12 +1193,18 @@ mod tests {
         let mut images = NamedImages::new();
         images.insert(
             "docker.io/library/alpine:latest".to_string(),
-            NamedImage { manifest_digest: format!("sha256:{}", "a".repeat(64)), chain_ids: vec!["sha256:c1".to_string()] },
+            NamedImage {
+                manifest_digest: format!("sha256:{}", "a".repeat(64)),
+                chain_ids: vec!["sha256:c1".to_string()],
+            },
         );
         write_named_images(tmp.path(), &images).unwrap();
         let read_back = read_named_images(tmp.path()).unwrap();
         assert_eq!(read_back.len(), 1);
-        assert_eq!(read_back["docker.io/library/alpine:latest"].chain_ids, vec!["sha256:c1".to_string()]);
+        assert_eq!(
+            read_back["docker.io/library/alpine:latest"].chain_ids,
+            vec!["sha256:c1".to_string()]
+        );
     }
 
     #[test]
@@ -982,7 +1224,12 @@ mod tests {
         // A `@digest` suffix that fails to parse as a real digest — caught
         // by `reference::parse` itself, synchronously, before this handler
         // ever spawns the background pull task or touches the network.
-        let (status, _body) = post_json(app, "/images/pull", serde_json::json!({ "reference": "alpine@not-a-digest" })).await;
+        let (status, _body) = post_json(
+            app,
+            "/images/pull",
+            serde_json::json!({ "reference": "alpine@not-a-digest" }),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
@@ -1037,8 +1284,15 @@ mod tests {
         let app = crate::build_router(state);
 
         let (status, body) = get_json(app, "/images/dedup").await;
-        assert_eq!(status, StatusCode::OK, "expected DedupResponse, got: {body}");
-        assert!(body.get("logical_bytes").is_some(), "response is not shaped like a DedupResponse: {body}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "expected DedupResponse, got: {body}"
+        );
+        assert!(
+            body.get("logical_bytes").is_some(),
+            "response is not shaped like a DedupResponse: {body}"
+        );
     }
 
     /// End-to-end proof of `GET /images`, `GET /images/:ref`, `GET
@@ -1083,13 +1337,22 @@ mod tests {
             ],
         });
         let manifest_bytes = serde_json::to_vec(&manifest_value).unwrap();
-        let manifest_digest = store.write_blob(None, Cursor::new(&manifest_bytes)).unwrap();
+        let manifest_digest = store
+            .write_blob(None, Cursor::new(&manifest_bytes))
+            .unwrap();
 
-        let chain_ids = vec!["sha256:synthchain1".to_string(), "sha256:synthchain2".to_string()];
+        let chain_ids = vec![
+            "sha256:synthchain1".to_string(),
+            "sha256:synthchain2".to_string(),
+        ];
         std::fs::create_dir_all(layer_store.diff_dir(&chain_ids[0])).unwrap();
         std::fs::write(layer_store.diff_dir(&chain_ids[0]).join("f1"), b"12345").unwrap(); // 5 bytes
         std::fs::create_dir_all(layer_store.diff_dir(&chain_ids[1])).unwrap();
-        std::fs::write(layer_store.diff_dir(&chain_ids[1]).join("f2"), b"1234567890").unwrap(); // 10 bytes
+        std::fs::write(
+            layer_store.diff_dir(&chain_ids[1]).join("f2"),
+            b"1234567890",
+        )
+        .unwrap(); // 10 bytes
 
         let reference = reference::parse("synthetic:latest").unwrap();
         let canonical = canonical_ref_string(&reference);
@@ -1100,7 +1363,13 @@ mod tests {
         store.add_ref(&layer2_digest, &owner).unwrap();
 
         let mut images: NamedImages = HashMap::new();
-        images.insert(canonical.clone(), NamedImage { manifest_digest: manifest_digest.to_string(), chain_ids: chain_ids.clone() });
+        images.insert(
+            canonical.clone(),
+            NamedImage {
+                manifest_digest: manifest_digest.to_string(),
+                chain_ids: chain_ids.clone(),
+            },
+        );
         write_named_images(data_dir.path(), &images).unwrap();
 
         let state = test_app_state(data_dir.path().to_path_buf(), run_dir.path().to_path_buf());
@@ -1113,7 +1382,10 @@ mod tests {
         assert_eq!(images_arr.len(), 1);
         assert_eq!(images_arr[0]["reference"], canonical);
         assert_eq!(images_arr[0]["layer_count"], 2);
-        assert_eq!(images_arr[0]["size_bytes"], (layer1_bytes.len() + layer2_bytes.len()) as u64);
+        assert_eq!(
+            images_arr[0]["size_bytes"],
+            (layer1_bytes.len() + layer2_bytes.len()) as u64
+        );
 
         // ---- GET /images/:ref (looked up via the SAME raw reference a
         // real client would have pulled with, not the canonical form —
@@ -1151,9 +1423,19 @@ mod tests {
         let (status, body) = delete_json(app.clone(), "/images/synthetic:latest").await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
         let removed = body["blobs_removed"].as_array().unwrap();
-        assert_eq!(removed.len(), 4, "manifest + config + 2 layers should all have been removed: {body}");
-        assert!(!store.is_referenced(&manifest_digest), "manifest must be unreferenced after delete");
-        assert!(!store.has_blob(&manifest_digest), "manifest blob must actually be gone from disk");
+        assert_eq!(
+            removed.len(),
+            4,
+            "manifest + config + 2 layers should all have been removed: {body}"
+        );
+        assert!(
+            !store.is_referenced(&manifest_digest),
+            "manifest must be unreferenced after delete"
+        );
+        assert!(
+            !store.has_blob(&manifest_digest),
+            "manifest blob must actually be gone from disk"
+        );
         assert!(!store.has_blob(&layer1_digest));
         assert!(!store.has_blob(&layer2_digest));
 
@@ -1179,7 +1461,9 @@ mod tests {
         let layer_store = LayerStore::new(data_dir.path().to_path_buf());
 
         let shared_layer_bytes = b"shared-base-layer".to_vec();
-        let shared_layer_digest = store.write_blob(None, Cursor::new(&shared_layer_bytes)).unwrap();
+        let shared_layer_digest = store
+            .write_blob(None, Cursor::new(&shared_layer_bytes))
+            .unwrap();
 
         let build_and_register = |suffix: &str, config_marker: &[u8]| {
             let config_digest = store.write_blob(None, Cursor::new(config_marker)).unwrap();
@@ -1194,7 +1478,9 @@ mod tests {
                 }],
             });
             let manifest_bytes = serde_json::to_vec(&manifest_value).unwrap();
-            let manifest_digest = store.write_blob(None, Cursor::new(&manifest_bytes)).unwrap();
+            let manifest_digest = store
+                .write_blob(None, Cursor::new(&manifest_bytes))
+                .unwrap();
 
             let chain_id = format!("sha256:sharedchain-{suffix}");
             std::fs::create_dir_all(layer_store.diff_dir(&chain_id)).unwrap();
@@ -1214,8 +1500,20 @@ mod tests {
         let (canonical_b, manifest_digest_b, chain_id_b) = build_and_register("b", b"config-b");
 
         let mut images: NamedImages = HashMap::new();
-        images.insert(canonical_a.clone(), NamedImage { manifest_digest: manifest_digest_a.to_string(), chain_ids: vec![chain_id_a] });
-        images.insert(canonical_b.clone(), NamedImage { manifest_digest: manifest_digest_b.to_string(), chain_ids: vec![chain_id_b] });
+        images.insert(
+            canonical_a.clone(),
+            NamedImage {
+                manifest_digest: manifest_digest_a.to_string(),
+                chain_ids: vec![chain_id_a],
+            },
+        );
+        images.insert(
+            canonical_b.clone(),
+            NamedImage {
+                manifest_digest: manifest_digest_b.to_string(),
+                chain_ids: vec![chain_id_b],
+            },
+        );
         write_named_images(data_dir.path(), &images).unwrap();
 
         let state = test_app_state(data_dir.path().to_path_buf(), run_dir.path().to_path_buf());
@@ -1223,17 +1521,37 @@ mod tests {
 
         let (status, body) = delete_json(app.clone(), "/images/shared-a:latest").await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
-        let removed: Vec<String> = body["blobs_removed"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        assert!(!removed.contains(&shared_layer_digest.to_string()), "shared layer must NOT be removed while image b still refs it: {removed:?}");
-        assert!(store.has_blob(&shared_layer_digest), "shared layer blob must still be on disk");
-        assert!(store.is_referenced(&shared_layer_digest), "shared layer must still show as referenced (by image b)");
-        assert!(!store.has_blob(&manifest_digest_a), "image a's OWN manifest (not shared) must be gone");
+        let removed: Vec<String> = body["blobs_removed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            !removed.contains(&shared_layer_digest.to_string()),
+            "shared layer must NOT be removed while image b still refs it: {removed:?}"
+        );
+        assert!(
+            store.has_blob(&shared_layer_digest),
+            "shared layer blob must still be on disk"
+        );
+        assert!(
+            store.is_referenced(&shared_layer_digest),
+            "shared layer must still show as referenced (by image b)"
+        );
+        assert!(
+            !store.has_blob(&manifest_digest_a),
+            "image a's OWN manifest (not shared) must be gone"
+        );
 
         // Now delete image b too — the shared layer must finally go.
         let (status, _) = delete_json(app, "/images/shared-b:latest").await;
         assert_eq!(status, StatusCode::OK);
         assert!(!store.is_referenced(&shared_layer_digest));
-        assert!(!store.has_blob(&shared_layer_digest), "shared layer must be gone once BOTH images are deleted");
+        assert!(
+            !store.has_blob(&shared_layer_digest),
+            "shared layer must be gone once BOTH images are deleted"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1250,7 +1568,9 @@ mod tests {
     /// establishes (two layers + a config), WITHOUT registering any refs
     /// or a `named-images.json` entry — the caller drives `record_pulled_
     /// image` itself so it can inject a failure partway through.
-    fn write_synthetic_manifest_fixture(store: &ContentStore) -> (Digest, Vec<u8>, Digest, Digest, Digest) {
+    fn write_synthetic_manifest_fixture(
+        store: &ContentStore,
+    ) -> (Digest, Vec<u8>, Digest, Digest, Digest) {
         let layer1_bytes = b"rollback-layer-one".to_vec();
         let layer2_bytes = b"rollback-layer-two-a-bit-longer".to_vec();
         let layer1_digest = store.write_blob(None, Cursor::new(&layer1_bytes)).unwrap();
@@ -1279,9 +1599,17 @@ mod tests {
             ],
         });
         let manifest_bytes = serde_json::to_vec(&manifest_value).unwrap();
-        let manifest_digest = store.write_blob(None, Cursor::new(&manifest_bytes)).unwrap();
+        let manifest_digest = store
+            .write_blob(None, Cursor::new(&manifest_bytes))
+            .unwrap();
 
-        (manifest_digest, manifest_bytes, config_digest, layer1_digest, layer2_digest)
+        (
+            manifest_digest,
+            manifest_bytes,
+            config_digest,
+            layer1_digest,
+            layer2_digest,
+        )
     }
 
     /// Bug 1, failure mode A: a LATER `add_ref` call (the second layer's)
@@ -1304,24 +1632,53 @@ mod tests {
         // Sabotage: make `add_ref(&layer2_digest, ...)`'s own
         // `create_dir_all(content/refs/<layer2-hex>)` fail by occupying
         // that exact path with a plain file first.
-        let poisoned_ref_dir = data_dir.path().join("content").join("refs").join(layer2_digest.hex());
+        let poisoned_ref_dir = data_dir
+            .path()
+            .join("content")
+            .join("refs")
+            .join(layer2_digest.hex());
         std::fs::create_dir_all(poisoned_ref_dir.parent().unwrap()).unwrap();
         std::fs::write(&poisoned_ref_dir, b"not a directory").unwrap();
 
         let reference = reference::parse("rollback-a-test:latest").unwrap();
         let canonical = canonical_ref_string(&reference);
-        let chain_ids = vec!["sha256:rollbackchain1".to_string(), "sha256:rollbackchain2".to_string()];
+        let chain_ids = vec![
+            "sha256:rollbackchain1".to_string(),
+            "sha256:rollbackchain2".to_string(),
+        ];
 
-        let result = record_pulled_image(data_dir.path(), &store, &canonical, &manifest_digest, &manifest_bytes, &chain_ids);
-        assert!(result.is_err(), "record_pulled_image must fail when a later add_ref fails: {result:?}");
+        let result = record_pulled_image(
+            data_dir.path(),
+            &store,
+            &canonical,
+            &manifest_digest,
+            &manifest_bytes,
+            &chain_ids,
+        );
+        assert!(
+            result.is_err(),
+            "record_pulled_image must fail when a later add_ref fails: {result:?}"
+        );
 
         // THE assertion this test exists for: every ref added BEFORE the
         // failure point must have been rolled back — zero refs
         // attributable to this call survive.
-        assert!(!store.is_referenced(&manifest_digest), "manifest ref must have been rolled back");
-        assert!(!store.is_referenced(&config_digest), "config ref must have been rolled back");
-        assert!(!store.is_referenced(&layer1_digest), "layer1 ref must have been rolled back");
-        assert!(!store.is_referenced(&layer2_digest), "layer2 was never successfully ref'd in the first place");
+        assert!(
+            !store.is_referenced(&manifest_digest),
+            "manifest ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&config_digest),
+            "config ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&layer1_digest),
+            "layer1 ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&layer2_digest),
+            "layer2 was never successfully ref'd in the first place"
+        );
 
         // AND no `named-images.json` entry must exist for this reference
         // either — this call never got anywhere near that step.
@@ -1351,19 +1708,44 @@ mod tests {
 
         let reference = reference::parse("rollback-b-test:latest").unwrap();
         let canonical = canonical_ref_string(&reference);
-        let chain_ids = vec!["sha256:rollbackchain1".to_string(), "sha256:rollbackchain2".to_string()];
+        let chain_ids = vec![
+            "sha256:rollbackchain1".to_string(),
+            "sha256:rollbackchain2".to_string(),
+        ];
 
-        let result = record_pulled_image(data_dir.path(), &store, &canonical, &manifest_digest, &manifest_bytes, &chain_ids);
-        assert!(result.is_err(), "record_pulled_image must fail when write_named_images fails: {result:?}");
+        let result = record_pulled_image(
+            data_dir.path(),
+            &store,
+            &canonical,
+            &manifest_digest,
+            &manifest_bytes,
+            &chain_ids,
+        );
+        assert!(
+            result.is_err(),
+            "record_pulled_image must fail when write_named_images fails: {result:?}"
+        );
 
         // THE assertion this test exists for: ALL refs (every add_ref
         // genuinely succeeded before the write step failed) must have
         // been rolled back — none left dangling just because the JSON
         // write, not a ref call, was what actually failed.
-        assert!(!store.is_referenced(&manifest_digest), "manifest ref must have been rolled back");
-        assert!(!store.is_referenced(&config_digest), "config ref must have been rolled back");
-        assert!(!store.is_referenced(&layer1_digest), "layer1 ref must have been rolled back");
-        assert!(!store.is_referenced(&layer2_digest), "layer2 ref must have been rolled back");
+        assert!(
+            !store.is_referenced(&manifest_digest),
+            "manifest ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&config_digest),
+            "config ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&layer1_digest),
+            "layer1 ref must have been rolled back"
+        );
+        assert!(
+            !store.is_referenced(&layer2_digest),
+            "layer2 ref must have been rolled back"
+        );
     }
 
     /// Bug 2: one corrupted/stale `named-images.json` entry (here: a
@@ -1398,10 +1780,16 @@ mod tests {
             }],
         });
         let manifest_bytes = serde_json::to_vec(&manifest_value).unwrap();
-        let manifest_digest = store.write_blob(None, Cursor::new(&manifest_bytes)).unwrap();
+        let manifest_digest = store
+            .write_blob(None, Cursor::new(&manifest_bytes))
+            .unwrap();
         let good_chain_id = "sha256:goodentrychain".to_string();
         std::fs::create_dir_all(layer_store.diff_dir(&good_chain_id)).unwrap();
-        std::fs::write(layer_store.diff_dir(&good_chain_id).join("f"), b"1234567890").unwrap(); // 10 bytes
+        std::fs::write(
+            layer_store.diff_dir(&good_chain_id).join("f"),
+            b"1234567890",
+        )
+        .unwrap(); // 10 bytes
 
         let good_reference = reference::parse("good-entry:latest").unwrap();
         let good_canonical = canonical_ref_string(&good_reference);
@@ -1419,8 +1807,20 @@ mod tests {
         let nonexistent_digest = format!("sha256:{}", "f".repeat(64));
 
         let mut images: NamedImages = HashMap::new();
-        images.insert(good_canonical.clone(), NamedImage { manifest_digest: manifest_digest.to_string(), chain_ids: vec![good_chain_id] });
-        images.insert(bad_canonical.clone(), NamedImage { manifest_digest: nonexistent_digest, chain_ids: vec!["sha256:nosuchchain".to_string()] });
+        images.insert(
+            good_canonical.clone(),
+            NamedImage {
+                manifest_digest: manifest_digest.to_string(),
+                chain_ids: vec![good_chain_id],
+            },
+        );
+        images.insert(
+            bad_canonical.clone(),
+            NamedImage {
+                manifest_digest: nonexistent_digest,
+                chain_ids: vec!["sha256:nosuchchain".to_string()],
+            },
+        );
         write_named_images(data_dir.path(), &images).unwrap();
 
         let state = test_app_state(data_dir.path().to_path_buf(), run_dir.path().to_path_buf());
@@ -1428,19 +1828,40 @@ mod tests {
 
         // ---- GET /images: 200, only the good entry listed ----
         let (status, body) = get_json(app.clone(), "/images").await;
-        assert_eq!(status, StatusCode::OK, "a corrupted entry must not turn this into a 500: {body}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a corrupted entry must not turn this into a 500: {body}"
+        );
         let images_arr = body["images"].as_array().unwrap();
-        assert_eq!(images_arr.len(), 1, "only the good entry should be listed: {body}");
+        assert_eq!(
+            images_arr.len(),
+            1,
+            "only the good entry should be listed: {body}"
+        );
         assert_eq!(images_arr[0]["reference"], good_canonical);
 
         // ---- GET /images/dedup: 200, aggregate reflects only the good
         // entry (1 image, 3 unique blobs: manifest+config+layer, 10
         // logical bytes from the one real extracted chain-id dir). ----
         let (status, body) = get_json(app.clone(), "/images/dedup").await;
-        assert_eq!(status, StatusCode::OK, "a corrupted entry must not turn this into a 500 either: {body}");
-        assert_eq!(body["images"], 1, "the aggregate image count must reflect only the resolvable entry: {body}");
-        assert_eq!(body["unique_blobs"], 3, "the bad entry's phantom digest must not be counted: {body}");
-        assert_eq!(body["logical_bytes"], 10, "only the good entry's real extracted content should be summed: {body}");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a corrupted entry must not turn this into a 500 either: {body}"
+        );
+        assert_eq!(
+            body["images"], 1,
+            "the aggregate image count must reflect only the resolvable entry: {body}"
+        );
+        assert_eq!(
+            body["unique_blobs"], 3,
+            "the bad entry's phantom digest must not be counted: {body}"
+        );
+        assert_eq!(
+            body["logical_bytes"], 10,
+            "only the good entry's real extracted content should be summed: {body}"
+        );
 
         // ---- the good entry's own individual lookup is completely
         // unaffected by its bad sibling ----
@@ -1470,7 +1891,10 @@ mod tests {
     /// Reads SSE `data: <json>` frames from `body` until a `"type":
     /// "Complete"` or `"type":"Error"` event is seen (or `timeout`
     /// elapses), returning every parsed event in arrival order.
-    async fn collect_pull_progress(mut body: Body, timeout: std::time::Duration) -> Vec<serde_json::Value> {
+    async fn collect_pull_progress(
+        mut body: Body,
+        timeout: std::time::Duration,
+    ) -> Vec<serde_json::Value> {
         let mut collected = Vec::new();
         let mut acc = String::new();
         let deadline = tokio::time::Instant::now() + timeout;
@@ -1481,7 +1905,9 @@ mod tests {
             }
             let frame = tokio::time::timeout(remaining, body.frame())
                 .await
-                .unwrap_or_else(|_| panic!("timed out waiting for next SSE frame; collected so far: {collected:?}"))
+                .unwrap_or_else(|_| {
+                    panic!("timed out waiting for next SSE frame; collected so far: {collected:?}")
+                })
                 .expect("SSE body stream ended unexpectedly")
                 .expect("reading SSE frame");
             if let Some(data) = frame.data_ref() {
@@ -1490,10 +1916,15 @@ mod tests {
             while let Some(idx) = acc.find("\n\n") {
                 let chunk: String = acc.drain(..idx + 2).collect();
                 for line in chunk.lines() {
-                    let Some(json_str) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) else {
+                    let Some(json_str) = line
+                        .strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"))
+                    else {
                         continue;
                     };
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str.trim()) else { continue };
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str.trim()) else {
+                        continue;
+                    };
                     let is_terminal = v["type"] == "Complete" || v["type"] == "Error";
                     collected.push(v);
                     if is_terminal {
@@ -1538,19 +1969,47 @@ mod tests {
             .method("POST")
             .uri("/images/pull")
             .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_vec(&serde_json::json!({ "reference": "alpine:latest" })).unwrap()))
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({ "reference": "alpine:latest" })).unwrap(),
+            ))
             .unwrap();
-        let response = app.clone().oneshot(request).await.expect("POST /images/pull oneshot");
-        assert_eq!(response.status(), StatusCode::OK, "POST /images/pull must return 200 (an SSE stream)");
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("POST /images/pull oneshot");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "POST /images/pull must return 200 (an SSE stream)"
+        );
 
-        let events = collect_pull_progress(response.into_body(), std::time::Duration::from_secs(180)).await;
-        assert!(events.len() >= 2, "expected at least a ManifestFetched and a terminal event, got: {events:?}");
-        assert_eq!(events.first().unwrap()["type"], "ManifestFetched", "first SSE event should be ManifestFetched: {events:?}");
+        let events =
+            collect_pull_progress(response.into_body(), std::time::Duration::from_secs(180)).await;
+        assert!(
+            events.len() >= 2,
+            "expected at least a ManifestFetched and a terminal event, got: {events:?}"
+        );
+        assert_eq!(
+            events.first().unwrap()["type"],
+            "ManifestFetched",
+            "first SSE event should be ManifestFetched: {events:?}"
+        );
         let last = events.last().unwrap();
-        assert_eq!(last["type"], "Complete", "pull must complete successfully: {events:?}");
-        let chain_ids: Vec<String> =
-            last["chain_ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        assert!(!chain_ids.is_empty(), "Complete event must carry real chain-ids");
+        assert_eq!(
+            last["type"], "Complete",
+            "pull must complete successfully: {events:?}"
+        );
+        let chain_ids: Vec<String> = last["chain_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            !chain_ids.is_empty(),
+            "Complete event must carry real chain-ids"
+        );
 
         // ---- the real dual-publish: an `image.pull.done` event must ALSO
         // have landed on the event bus for this same pull, independent of
@@ -1558,7 +2017,9 @@ mod tests {
         let bus_event = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 match event_sub.recv().await {
-                    Ok(Event::ImagePullDone { reference }) if reference == "alpine:latest" => return true,
+                    Ok(Event::ImagePullDone { reference }) if reference == "alpine:latest" => {
+                        return true
+                    }
                     Ok(_) => continue,
                     Err(_) => return false,
                 }
@@ -1566,7 +2027,10 @@ mod tests {
         })
         .await
         .unwrap_or(false);
-        assert!(bus_event, "expected an Event::ImagePullDone{{reference: \"alpine:latest\"}} on the event bus");
+        assert!(
+            bus_event,
+            "expected an Event::ImagePullDone{{reference: \"alpine:latest\"}} on the event bus"
+        );
 
         // ---- GET /images lists it ----
         let (status, body) = get_json(app.clone(), "/images").await;
@@ -1592,15 +2056,25 @@ mod tests {
         // ---- real is_referenced check before delete ----
         let store = ContentStore::new(data_dir.path().to_path_buf());
         let digest: Digest = manifest_digest.parse().unwrap();
-        assert!(store.is_referenced(&digest), "freshly pulled manifest must be referenced");
+        assert!(
+            store.is_referenced(&digest),
+            "freshly pulled manifest must be referenced"
+        );
 
         // ---- DELETE removes it; is_referenced correctly reflects zero refs ----
         let (status, body) = delete_json(app.clone(), "/images/alpine:latest").await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
         assert!(!body["blobs_removed"].as_array().unwrap().is_empty());
-        assert!(!store.is_referenced(&digest), "manifest must be unreferenced after DELETE");
+        assert!(
+            !store.is_referenced(&digest),
+            "manifest must be unreferenced after DELETE"
+        );
 
         let (status, _) = get_json(app, "/images/alpine:latest").await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "deleted image must 404 afterward");
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "deleted image must 404 afterward"
+        );
     }
 }

@@ -81,9 +81,9 @@ pub fn start(id: &str, run_dir: &Path) -> Result<()> {
     // to resolve within budget is NOT fatal to `start()`: `state.pid`
     // simply keeps its prior value (kestrel-init's own pid) in that case,
     // exactly as it always did before this pid-tracking feature existed.
-    if let Some(entrypoint_pid) = kestrel_init_host_pid
-        .and_then(|p| resolve_entrypoint_host_pid(p, ENTRYPOINT_PID_WAIT_BUDGET, ENTRYPOINT_PID_POLL_INTERVAL))
-    {
+    if let Some(entrypoint_pid) = kestrel_init_host_pid.and_then(|p| {
+        resolve_entrypoint_host_pid(p, ENTRYPOINT_PID_WAIT_BUDGET, ENTRYPOINT_PID_POLL_INTERVAL)
+    }) {
         // Re-read fresh rather than reusing the in-memory `state` from
         // above: kestrel-init's reaper may have ALREADY advanced
         // status/exit_code by the time this resolves (same short-lived-
@@ -162,7 +162,11 @@ fn open_fifo_for_write_bounded(
 
     let start = Instant::now();
     loop {
-        match open(fifo_host_path, OFlag::O_WRONLY | OFlag::O_NONBLOCK, Mode::empty()) {
+        match open(
+            fifo_host_path,
+            OFlag::O_WRONLY | OFlag::O_NONBLOCK,
+            Mode::empty(),
+        ) {
             Ok(raw_fd) => {
                 // A reader is present. Clear O_NONBLOCK before handing the
                 // fd back — the caller's subsequent `write_all` expects
@@ -170,7 +174,9 @@ fn open_fifo_for_write_bounded(
                 // pipe buffer (irrelevant here in practice, since only a
                 // single byte is ever written, but there is no reason to
                 // hand back a surprising non-blocking fd).
-                let flags = OFlag::from_bits_truncate(fcntl(raw_fd, FcntlArg::F_GETFL).context("fcntl F_GETFL on exec fifo")?);
+                let flags = OFlag::from_bits_truncate(
+                    fcntl(raw_fd, FcntlArg::F_GETFL).context("fcntl F_GETFL on exec fifo")?,
+                );
                 fcntl(raw_fd, FcntlArg::F_SETFL(flags & !OFlag::O_NONBLOCK))
                     .context("fcntl F_SETFL clearing O_NONBLOCK on exec fifo")?;
                 // SAFETY: `raw_fd` was just returned by a successful `open`
@@ -202,7 +208,9 @@ fn open_fifo_for_write_bounded(
                 std::thread::sleep(poll_interval);
             }
             Err(e) => {
-                return Err(e).with_context(|| format!("opening {} (non-blocking probe)", fifo_host_path.display()));
+                return Err(e).with_context(|| {
+                    format!("opening {} (non-blocking probe)", fifo_host_path.display())
+                });
             }
         }
     }
@@ -232,12 +240,21 @@ fn open_fifo_for_write_bounded(
 /// on timeout — the caller must NOT treat that as fatal to `start()`
 /// itself (the container is still starting up fine; only the pid-tracking
 /// convenience this enables is degraded).
-fn resolve_entrypoint_host_pid(kestrel_init_host_pid: i32, wait_budget: Duration, poll_interval: Duration) -> Option<i32> {
-    let children_path = format!("/proc/{kestrel_init_host_pid}/task/{kestrel_init_host_pid}/children");
+fn resolve_entrypoint_host_pid(
+    kestrel_init_host_pid: i32,
+    wait_budget: Duration,
+    poll_interval: Duration,
+) -> Option<i32> {
+    let children_path =
+        format!("/proc/{kestrel_init_host_pid}/task/{kestrel_init_host_pid}/children");
     let deadline = Instant::now() + wait_budget;
     loop {
         if let Ok(content) = std::fs::read_to_string(&children_path) {
-            if let Some(pid) = content.split_whitespace().next().and_then(|s| s.parse::<i32>().ok()) {
+            if let Some(pid) = content
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<i32>().ok())
+            {
                 return Some(pid);
             }
         }
@@ -443,7 +460,9 @@ mod tests {
 
         // A real pid that is guaranteed to no longer exist by the time
         // `start()` runs: fork, exit immediately, reap.
+        // SAFETY: fork() is safe in this single-threaded test context; child only calls _exit.
         let dead_pid = match unsafe { fork() }.expect("fork") {
+            // SAFETY: _exit is async-signal-safe and never returns; child terminates immediately.
             ForkResult::Child => unsafe { libc::_exit(0) },
             ForkResult::Parent { child } => {
                 waitpid(child, None).expect("reap the short-lived child");

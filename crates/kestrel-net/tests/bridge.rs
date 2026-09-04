@@ -45,7 +45,10 @@ async fn test_find_link_index_returns_none_for_missing_link() {
         // "does this device exist" check that would yield -ENODEV, which
         // would defeat the point of this test (confirmed empirically
         // while developing `find_link_index`'s ENODEV-detection).
-        assert!(find_link_index(&handle, "kbr-missing0").await.unwrap().is_none());
+        assert!(find_link_index(&handle, "kbr-missing0")
+            .await
+            .unwrap()
+            .is_none());
     })
     .await;
 }

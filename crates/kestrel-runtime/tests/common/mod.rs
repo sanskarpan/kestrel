@@ -60,7 +60,8 @@ use std::process::Command;
 /// `crates/kestrel-runtime` and this repo has no `.cargo/config.toml`
 /// override of that default location.
 fn static_fixture_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/aarch64-unknown-linux-gnu/debug/lifecycle_fixture")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/aarch64-unknown-linux-gnu/debug/lifecycle_fixture")
 }
 
 /// Builds a minimal synthetic rootfs DIRECTORY (not a tar — Task 16's
@@ -110,7 +111,11 @@ pub fn build_synthetic_rootfs(dest: &Path) -> PathBuf {
     }
 
     std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
-        panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display())
+        panic!(
+            "copy {} to {}: {e}",
+            fixture_path.display(),
+            dest.join("fixture").display()
+        )
     });
     std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755)).unwrap();
     dest.to_path_buf()

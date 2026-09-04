@@ -108,7 +108,10 @@ fn namespaces_without_mount_plus_user() -> Vec<LinuxNamespace> {
 /// Builds a minimal-but-real `Bundle` with the proven-working namespace set
 /// above (plus a trivial identity uid/gid map, required since it includes
 /// `NsType::User`) and the given `LinuxResources` block.
-fn bundle_with_resources(bundle_dir: &Path, resources: kestrel_oci::runtime::LinuxResources) -> Bundle {
+fn bundle_with_resources(
+    bundle_dir: &Path,
+    resources: kestrel_oci::runtime::LinuxResources,
+) -> Bundle {
     std::fs::create_dir_all(bundle_dir.join("rootfs")).expect("mkdir rootfs");
 
     let mut spec = default_spec();
@@ -174,7 +177,14 @@ fn unpin_test_namespaces(run_dir: &Path, id: &str) {
 /// Same shared-plumbing setup as `create_pins_namespaces.rs`'s own
 /// `setup_dirs`: a real, private cgroup2 mount at `data_dir/cgroups`, a
 /// fresh `run_dir`, and a destroy-on-drop cgroup guard for `id`.
-fn setup_dirs(id: &str) -> (tempfile::TempDir, tempfile::TempDir, MountGuard, CgroupGuard) {
+fn setup_dirs(
+    id: &str,
+) -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    MountGuard,
+    CgroupGuard,
+) {
     let data_dir = tempfile::tempdir().expect("data_dir tempdir");
     let cgroups_mount = data_dir.path().join("cgroups");
     std::fs::create_dir_all(&cgroups_mount).expect("mkdir cgroups mountpoint");
@@ -245,7 +255,8 @@ fn test_create_applies_configured_memory_and_pids_limits_to_the_real_cgroup() {
         let state_path = run_dir.path().join(&id).join("state.json");
         let state = State::read(&state_path).expect("read state.json");
         assert_eq!(state.status, Status::Created);
-        let target_pid = nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
+        let target_pid =
+            nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
         let process_guard = ProcessGuard(target_pid);
 
         // ---- the real proof: read memory.max/pids.max straight out of the
@@ -348,11 +359,16 @@ fn test_create_with_no_resources_leaves_defaults_unconstrained() {
         let (run_dir, data_dir, mount_guard, cgroup_guard) = setup_dirs(&id);
 
         let result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), data_dir.path());
-        assert!(result.is_ok(), "create() should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "create() should succeed: {:?}",
+            result.err()
+        );
 
         let state_path = run_dir.path().join(&id).join("state.json");
         let state = State::read(&state_path).expect("read state.json");
-        let target_pid = nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
+        let target_pid =
+            nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
         let process_guard = ProcessGuard(target_pid);
 
         let memory_max = std::fs::read_to_string(cgroup_guard.0.path.join("memory.max"))

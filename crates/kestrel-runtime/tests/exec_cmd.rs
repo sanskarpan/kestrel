@@ -63,6 +63,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use kestrel_ns::types::NsType;
 use kestrel_oci::default_spec::{default_namespaces, default_spec};
 use kestrel_oci::raw::RawSpec;
 use kestrel_oci::runtime::{
@@ -70,7 +71,6 @@ use kestrel_oci::runtime::{
     Process, ProcessBuilder,
 };
 use kestrel_oci::state::{State, Status};
-use kestrel_ns::types::NsType;
 use kestrel_runtime::bundle::Bundle;
 
 /// The namespace types every test container below pins: `default_namespaces()`
@@ -326,7 +326,9 @@ fn exec_probe_process(ns_output: &Path, exit_code: Option<i32>, signal: Option<&
 /// report back into an `(NsType, (dev, ino))` pair.
 fn parse_ns_report_line(line: &str) -> (NsType, (u64, u64)) {
     let mut parts = line.split_whitespace();
-    let name = parts.next().unwrap_or_else(|| panic!("empty ns report line"));
+    let name = parts
+        .next()
+        .unwrap_or_else(|| panic!("empty ns report line"));
     let dev: u64 = parts
         .next()
         .unwrap_or_else(|| panic!("missing dev field in line {line:?}"))
@@ -380,8 +382,8 @@ fn test_exec_joins_every_real_namespace_and_propagates_zero_exit() {
         // here specifically because this is the forked-then-exec'd
         // process, not the joiner itself (see this file's module doc
         // comment) ----
-        let report =
-            std::fs::read_to_string(&ns_output_path).expect("read ns report written by exec'd process");
+        let report = std::fs::read_to_string(&ns_output_path)
+            .expect("read ns report written by exec'd process");
         let mut seen = HashSet::new();
         for line in report.lines() {
             let (ns, identity) = parse_ns_report_line(line);
@@ -391,7 +393,10 @@ fn test_exec_joins_every_real_namespace_and_propagates_zero_exit() {
                  container's pin (dev={}, ino={}) — exec_cmd::exec did not genuinely join it",
                 identity.0, identity.1, fixture.pins[&ns].0, fixture.pins[&ns].1
             );
-            assert!(seen.insert(ns), "duplicate {ns:?} line in ns report: {report}");
+            assert!(
+                seen.insert(ns),
+                "duplicate {ns:?} line in ns report: {report}"
+            );
         }
         assert_eq!(
             seen.len(),
@@ -444,8 +449,9 @@ fn test_exec_propagates_signal_exit_code() {
         let id = fixture.id.clone();
         let run_dir_path = fixture.run_dir_path.clone();
         kestrel_ns::test_util::run_isolated(move || {
-            let exit_code = kestrel_runtime::exec_cmd::exec(&id, &run_dir_path, &process)
-                .expect("exec_cmd::exec should succeed even when the exec'd process dies by signal");
+            let exit_code = kestrel_runtime::exec_cmd::exec(&id, &run_dir_path, &process).expect(
+                "exec_cmd::exec should succeed even when the exec'd process dies by signal",
+            );
             assert_eq!(
                 exit_code,
                 128 + 9,

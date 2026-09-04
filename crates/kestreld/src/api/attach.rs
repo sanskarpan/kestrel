@@ -180,8 +180,10 @@ async fn connect_attach_sock_with_retry(attach_sock_path: &Path) -> std::io::Res
         match UnixStream::connect(attach_sock_path).await {
             Ok(stream) => return Ok(stream),
             Err(e)
-                if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
-                    && tokio::time::Instant::now() < deadline =>
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) && tokio::time::Instant::now() < deadline =>
             {
                 tokio::time::sleep(RETRY_INTERVAL).await;
             }
@@ -259,22 +261,23 @@ async fn run_attach_session(
                         break; // the select! loop below already gave up
                     }
                 }
-                Ok(Frame::SeccompEvent(bytes)) => {
-                    match parse_seccomp_syscall(&bytes) {
-                        Some(syscall) => {
-                            events::publish(
-                                &reader_event_bus,
-                                events::Event::SeccompViolation { id: reader_id.clone(), syscall },
-                            );
-                        }
-                        None => {
-                            tracing::warn!(
-                                id = %reader_id,
-                                "received a malformed SeccompEvent frame over attach.sock (no `syscall` field)"
-                            );
-                        }
+                Ok(Frame::SeccompEvent(bytes)) => match parse_seccomp_syscall(&bytes) {
+                    Some(syscall) => {
+                        events::publish(
+                            &reader_event_bus,
+                            events::Event::SeccompViolation {
+                                id: reader_id.clone(),
+                                syscall,
+                            },
+                        );
                     }
-                }
+                    None => {
+                        tracing::warn!(
+                            id = %reader_id,
+                            "received a malformed SeccompEvent frame over attach.sock (no `syscall` field)"
+                        );
+                    }
+                },
                 Ok(Frame::Close) | Err(_) => break, // shim closed, or a read error (EOF included)
                 Ok(_) => {} // Resize is never sent inbound by the shim; ignore defensively
             }
@@ -357,9 +360,15 @@ pub async fn resize_container(
     let mut stream = UnixStream::connect(&attach_sock_path)
         .await
         .with_context(|| format!("connecting to {}", attach_sock_path.display()))?;
-    framing::write_frame(&mut stream, &Frame::Resize { rows: req.rows, cols: req.cols })
-        .await
-        .context("sending RESIZE frame to attach.sock")?;
+    framing::write_frame(
+        &mut stream,
+        &Frame::Resize {
+            rows: req.rows,
+            cols: req.cols,
+        },
+    )
+    .await
+    .context("sending RESIZE frame to attach.sock")?;
 
     Ok(StatusCode::OK)
 }

@@ -29,7 +29,9 @@ fn safe_join(dest: &Path, entry_path: &Path) -> Result<PathBuf> {
         entry_path.display()
     );
     ensure!(
-        !entry_path.components().any(|c| matches!(c, Component::ParentDir)),
+        !entry_path
+            .components()
+            .any(|c| matches!(c, Component::ParentDir)),
         "path traversal in layer: {} contains a '..' component",
         entry_path.display()
     );
@@ -75,7 +77,11 @@ fn safe_join(dest: &Path, entry_path: &Path) -> Result<PathBuf> {
 /// content-store work, not this phase. It is documented here so it isn't
 /// lost, not fixed here.
 pub fn apply_layer(tar: impl Read, dest: &Path, rootless: bool) -> Result<LayerStats> {
-    let ns = if rootless { "user.overlay" } else { "trusted.overlay" };
+    let ns = if rootless {
+        "user.overlay"
+    } else {
+        "trusted.overlay"
+    };
     let dest = dest
         .canonicalize()
         .with_context(|| format!("canonicalizing destination {}", dest.display()))?;
@@ -113,7 +119,9 @@ pub fn apply_layer(tar: impl Read, dest: &Path, rootless: bool) -> Result<LayerS
         entry.set_preserve_permissions(true);
         entry.set_unpack_xattrs(true);
         let size = entry.size();
-        entry.unpack_in(&dest).with_context(|| format!("extracting {}", path.display()))?;
+        entry
+            .unpack_in(&dest)
+            .with_context(|| format!("extracting {}", path.display()))?;
         stats.files += 1;
         stats.bytes += size;
     }

@@ -111,9 +111,10 @@ pub async fn get_namespaces(
 
     let run_dir = state.run_dir.clone();
     let id_for_walk = id.clone();
-    let namespaces = tokio::task::spawn_blocking(move || collect_namespaces(&run_dir, &id_for_walk, &other_ids))
-        .await
-        .map_err(|e| AppError::internal(format!("namespaces: walk task panicked: {e}")))?;
+    let namespaces =
+        tokio::task::spawn_blocking(move || collect_namespaces(&run_dir, &id_for_walk, &other_ids))
+            .await
+            .map_err(|e| AppError::internal(format!("namespaces: walk task panicked: {e}")))?;
 
     Ok(Json(NamespacesResponse { namespaces }))
 }
@@ -259,12 +260,25 @@ fn read_cgroup(cgroups_root: &Path, id: &str) -> anyhow::Result<CgroupResponse> 
     let pids_current = cgroup.pids_current().context("reading pids_current")?;
     let io_stat = cgroup.io_stat().context("reading io_stat")?;
 
-    let cpu_max = std::fs::read_to_string(cgroup.path.join("cpu.max"))
-        .with_context(|| format!("reading cpu.max at {}", cgroup.path.join("cpu.max").display()))?;
-    let memory_max = std::fs::read_to_string(cgroup.path.join("memory.max"))
-        .with_context(|| format!("reading memory.max at {}", cgroup.path.join("memory.max").display()))?;
-    let pids_max = std::fs::read_to_string(cgroup.path.join("pids.max"))
-        .with_context(|| format!("reading pids.max at {}", cgroup.path.join("pids.max").display()))?;
+    let cpu_max = std::fs::read_to_string(cgroup.path.join("cpu.max")).with_context(|| {
+        format!(
+            "reading cpu.max at {}",
+            cgroup.path.join("cpu.max").display()
+        )
+    })?;
+    let memory_max =
+        std::fs::read_to_string(cgroup.path.join("memory.max")).with_context(|| {
+            format!(
+                "reading memory.max at {}",
+                cgroup.path.join("memory.max").display()
+            )
+        })?;
+    let pids_max = std::fs::read_to_string(cgroup.path.join("pids.max")).with_context(|| {
+        format!(
+            "reading pids.max at {}",
+            cgroup.path.join("pids.max").display()
+        )
+    })?;
 
     Ok(CgroupResponse {
         cpu_stat: cpu_stat.into(),
@@ -349,9 +363,18 @@ fn read_pressure(cgroups_root: &Path, id: &str) -> anyhow::Result<PressureRespon
         .with_context(|| format!("constructing a CgroupManager for {id}"))?;
 
     Ok(PressureResponse {
-        cpu: cgroup.pressure(PsiResource::Cpu).context("reading cpu.pressure")?.into(),
-        memory: cgroup.pressure(PsiResource::Memory).context("reading memory.pressure")?.into(),
-        io: cgroup.pressure(PsiResource::Io).context("reading io.pressure")?.into(),
+        cpu: cgroup
+            .pressure(PsiResource::Cpu)
+            .context("reading cpu.pressure")?
+            .into(),
+        memory: cgroup
+            .pressure(PsiResource::Memory)
+            .context("reading memory.pressure")?
+            .into(),
+        io: cgroup
+            .pressure(PsiResource::Io)
+            .context("reading io.pressure")?
+            .into(),
     })
 }
 
@@ -400,9 +423,10 @@ pub async fn get_mounts(
 
     let run_dir = state.run_dir.clone();
     let id_for_join = id.clone();
-    let mounts = tokio::task::spawn_blocking(move || read_mounts_in_namespace(&run_dir, &id_for_join))
-        .await
-        .map_err(|e| AppError::internal(format!("mounts: task panicked: {e}")))??;
+    let mounts =
+        tokio::task::spawn_blocking(move || read_mounts_in_namespace(&run_dir, &id_for_join))
+            .await
+            .map_err(|e| AppError::internal(format!("mounts: task panicked: {e}")))??;
 
     Ok(Json(MountsResponse { mounts }))
 }
@@ -488,7 +512,12 @@ fn propagation_from_optional_fields(fields: &[&str]) -> String {
     let tags: Vec<&str> = fields
         .iter()
         .copied()
-        .filter(|f| f.starts_with("shared:") || f.starts_with("master:") || f.starts_with("propagate_from:") || *f == "unbindable")
+        .filter(|f| {
+            f.starts_with("shared:")
+                || f.starts_with("master:")
+                || f.starts_with("propagate_from:")
+                || *f == "unbindable"
+        })
         .collect();
     if tags.is_empty() {
         "private".to_string()
@@ -530,9 +559,14 @@ pub async fn get_caps(
 }
 
 fn read_caps(config_path: &Path) -> anyhow::Result<CapabilitiesResponse> {
-    let spec = Spec::load(config_path).with_context(|| format!("loading {}", config_path.display()))?;
+    let spec =
+        Spec::load(config_path).with_context(|| format!("loading {}", config_path.display()))?;
 
-    let Some(caps) = spec.process().as_ref().and_then(|p| p.capabilities().clone()) else {
+    let Some(caps) = spec
+        .process()
+        .as_ref()
+        .and_then(|p| p.capabilities().clone())
+    else {
         return Ok(CapabilitiesResponse::default());
     };
 
@@ -561,7 +595,11 @@ fn caps_to_sorted_strings(caps: &Option<kestrel_oci::runtime::Capabilities>) -> 
     };
     let mut out: Vec<String> = caps
         .iter()
-        .filter_map(|c| serde_json::to_value(c).ok().and_then(|v| v.as_str().map(str::to_string)))
+        .filter_map(|c| {
+            serde_json::to_value(c)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+        })
         .collect();
     out.sort();
     out
@@ -619,7 +657,8 @@ pub async fn get_layers(
 }
 
 fn read_layers(data_dir: &Path, id: &str) -> anyhow::Result<LayersResponse> {
-    let layers_meta = registry::read_layers(data_dir, id).with_context(|| format!("reading layers.json for {id}"))?;
+    let layers_meta = registry::read_layers(data_dir, id)
+        .with_context(|| format!("reading layers.json for {id}"))?;
     let layer_store = LayerStore::new(data_dir.to_path_buf());
 
     let layers = layers_meta
@@ -627,9 +666,17 @@ fn read_layers(data_dir: &Path, id: &str) -> anyhow::Result<LayersResponse> {
         .into_iter()
         .map(|chain_id| {
             let diff_dir = layer_store.diff_dir(&chain_id);
-            let size_bytes = dir_size(&diff_dir)
-                .with_context(|| format!("walking diff dir {} for chain-id {chain_id}", diff_dir.display()))?;
-            Ok(LayerEntry { chain_id, origin: diff_dir.display().to_string(), size_bytes })
+            let size_bytes = dir_size(&diff_dir).with_context(|| {
+                format!(
+                    "walking diff dir {} for chain-id {chain_id}",
+                    diff_dir.display()
+                )
+            })?;
+            Ok(LayerEntry {
+                chain_id,
+                origin: diff_dir.display().to_string(),
+                size_bytes,
+            })
         })
         .collect::<anyhow::Result<Vec<LayerEntry>>>()?;
 
@@ -650,14 +697,18 @@ fn dir_size(dir: &Path) -> anyhow::Result<u64> {
     }
     let mut total = 0u64;
     for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        let entry = entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
+        let entry =
+            entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
         let file_type = entry
             .file_type()
             .with_context(|| format!("reading file type of {}", entry.path().display()))?;
         if file_type.is_dir() {
             total += dir_size(&entry.path())?;
         } else if file_type.is_file() {
-            total += entry.metadata().with_context(|| format!("stat {}", entry.path().display()))?.len();
+            total += entry
+                .metadata()
+                .with_context(|| format!("stat {}", entry.path().display()))?
+                .len();
         }
         // symlinks/devices/fifos/sockets: contribute 0, matching
         // `copy_dir_recursive`'s own "skip special files" convention.
@@ -707,14 +758,22 @@ pub async fn get_copyups(
 }
 
 fn read_copyups(data_dir: &Path, id: &str) -> anyhow::Result<CopyUpsResponse> {
-    let layers_meta = registry::read_layers(data_dir, id).with_context(|| format!("reading layers.json for {id}"))?;
+    let layers_meta = registry::read_layers(data_dir, id)
+        .with_context(|| format!("reading layers.json for {id}"))?;
     let layer_store = LayerStore::new(data_dir.to_path_buf());
-    let diff_dirs: Vec<std::path::PathBuf> = layers_meta.chain_ids.iter().map(|c| layer_store.diff_dir(c)).collect();
+    let diff_dirs: Vec<std::path::PathBuf> = layers_meta
+        .chain_ids
+        .iter()
+        .map(|c| layer_store.diff_dir(c))
+        .collect();
     let lowers: Vec<LowerLayer> = layers_meta
         .chain_ids
         .iter()
         .zip(diff_dirs.iter())
-        .map(|(chain_id, diff_dir)| LowerLayer { chain_id: chain_id.as_str(), diff_dir: diff_dir.as_path() })
+        .map(|(chain_id, diff_dir)| LowerLayer {
+            chain_id: chain_id.as_str(),
+            diff_dir: diff_dir.as_path(),
+        })
         .collect();
 
     // Same `<data_dir>/snapshots/<id>/upper` convention `copyup_scanner.rs`
@@ -795,7 +854,12 @@ impl SeccompLog {
     /// violations, matching Task 19 Step 3's own "don't hard-fail just
     /// because there's nothing to report" wording.
     async fn snapshot(&self, id: &str) -> Vec<String> {
-        self.0.read().await.get(id).map(|d| d.iter().cloned().collect()).unwrap_or_default()
+        self.0
+            .read()
+            .await
+            .get(id)
+            .map(|d| d.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Removes `id`'s entry from the outer map entirely (not merely
@@ -839,7 +903,10 @@ pub fn spawn_seccomp_log_consumer(event_bus: EventBus, log: SeccompLog) {
                 Ok(Event::SeccompViolation { id, syscall }) => log.record(&id, syscall).await,
                 Ok(_) => {} // every other Event variant: not this log's concern
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "seccomp log consumer lagged — some violations were dropped; continuing");
+                    tracing::warn!(
+                        skipped,
+                        "seccomp log consumer lagged — some violations were dropped; continuing"
+                    );
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -894,27 +961,43 @@ pub async fn get_seccomp(
 
     let violations = state.seccomp_log.snapshot(&id).await;
 
-    Ok(Json(SeccompResponse { profile, violations }))
+    Ok(Json(SeccompResponse {
+        profile,
+        violations,
+    }))
 }
 
 fn read_seccomp_profile(config_path: &Path) -> anyhow::Result<Option<SeccompProfileOut>> {
-    let spec = Spec::load(config_path).with_context(|| format!("loading {}", config_path.display()))?;
+    let spec =
+        Spec::load(config_path).with_context(|| format!("loading {}", config_path.display()))?;
 
     let Some(seccomp) = spec.linux().as_ref().and_then(|l| l.seccomp().clone()) else {
         return Ok(None);
     };
 
-    let architectures =
-        seccomp.architectures().clone().unwrap_or_default().into_iter().map(|a| a.to_string()).collect();
+    let architectures = seccomp
+        .architectures()
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| a.to_string())
+        .collect();
     let syscalls = seccomp
         .syscalls()
         .clone()
         .unwrap_or_default()
         .into_iter()
-        .map(|s| SeccompSyscallRuleOut { names: s.names().clone(), action: s.action().to_string() })
+        .map(|s| SeccompSyscallRuleOut {
+            names: s.names().clone(),
+            action: s.action().to_string(),
+        })
         .collect();
 
-    Ok(Some(SeccompProfileOut { default_action: seccomp.default_action().to_string(), architectures, syscalls }))
+    Ok(Some(SeccompProfileOut {
+        default_action: seccomp.default_action().to_string(),
+        architectures,
+        syscalls,
+    }))
 }
 
 // ===========================================================================
@@ -962,7 +1045,9 @@ fn scan_system_namespaces() -> HashMap<String, HashMap<String, u64>> {
     };
     for entry in proc_entries.flatten() {
         let file_name = entry.file_name();
-        let Some(pid_str) = file_name.to_str() else { continue };
+        let Some(pid_str) = file_name.to_str() else {
+            continue;
+        };
         if pid_str.is_empty() || !pid_str.bytes().all(|b| b.is_ascii_digit()) {
             continue; // not a pid directory (e.g. /proc/self, /proc/cpuinfo, ...)
         }
@@ -974,7 +1059,9 @@ fn scan_system_namespaces() -> HashMap<String, HashMap<String, u64>> {
 
         let mut ns_map = HashMap::new();
         for ns_entry in ns_entries.flatten() {
-            let Some(ns_name) = ns_entry.file_name().to_str().map(str::to_string) else { continue };
+            let Some(ns_name) = ns_entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
             if let Ok(meta) = std::fs::metadata(ns_entry.path()) {
                 ns_map.insert(ns_name, meta.ino());
             }
@@ -1009,7 +1096,10 @@ mod tests {
         let mounts = parse_mountinfo(REAL_MOUNTINFO_SAMPLE);
         assert_eq!(mounts.len(), 5);
 
-        let root = mounts.iter().find(|m| m.mount_point == "/").expect("root entry present");
+        let root = mounts
+            .iter()
+            .find(|m| m.mount_point == "/")
+            .expect("root entry present");
         assert_eq!(root.mount_id, 32);
         assert_eq!(root.parent_id, 1);
         assert_eq!(root.major, 253);
@@ -1019,7 +1109,10 @@ mod tests {
         assert_eq!(root.super_options, "rw,discard,errors=remount-ro,commit=30");
         assert_eq!(root.propagation, "shared:1");
 
-        let sys = mounts.iter().find(|m| m.mount_point == "/sys").expect("/sys entry present");
+        let sys = mounts
+            .iter()
+            .find(|m| m.mount_point == "/sys")
+            .expect("/sys entry present");
         assert_eq!(sys.propagation, "shared:7");
         assert_eq!(sys.mount_options, "rw,nosuid,nodev,noexec,relatime");
         assert_eq!(sys.root, "/");
@@ -1083,7 +1176,10 @@ mod tests {
         set.insert(Capability::AuditWrite);
         set.insert(Capability::NetBindService);
         let names = caps_to_sorted_strings(&Some(set));
-        assert_eq!(names, vec!["CAP_AUDIT_WRITE", "CAP_KILL", "CAP_NET_BIND_SERVICE"]);
+        assert_eq!(
+            names,
+            vec!["CAP_AUDIT_WRITE", "CAP_KILL", "CAP_NET_BIND_SERVICE"]
+        );
     }
 
     #[test]

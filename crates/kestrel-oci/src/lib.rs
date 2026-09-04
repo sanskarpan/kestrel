@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 //! OCI Runtime & Image Spec types, re-exported from `oci-spec`, plus
 //! kestrel-specific extensions (validation, default-spec generation,
 //! image-config translation, user resolution, forward-compatible parsing).

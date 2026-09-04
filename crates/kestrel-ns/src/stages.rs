@@ -21,7 +21,7 @@
 //! process that is actually PID 1 of the new namespace is to fork again
 //! after that unshare.
 
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixDatagram;
 use std::time::Duration;
 
@@ -115,7 +115,9 @@ pub fn run_stages(
     // deliberate tradeoff for now (the call itself is idempotent and cheap
     // to repeat), not an oversight — but callers should not assume this can
     // be scoped to one container or undone per call.
-    nix::sys::prctl::set_child_subreaper(true).context("prctl(PR_SET_CHILD_SUBREAPER)")?;
+    nix::sys::prctl::set_child_subreaper(true).with_context(|| {
+        "syscall prctl(PR_SET_CHILD_SUBREAPER, 1): failed; hint: kernel may not support subreaper (check kernel >= 3.4) or prctl denied".to_string()
+    })?;
 
     let (a, b) = socketpair(
         AddressFamily::Unix,
@@ -123,7 +125,9 @@ pub fn run_stages(
         None,
         SockFlag::SOCK_CLOEXEC,
     )
-    .context("creating sync socketpair")?;
+    .with_context(|| {
+        "syscall socketpair(AF_UNIX, SOCK_SEQPACKET, SOCK_CLOEXEC): failed; hint: check fd limits (ulimit -n) and kernel unix socket support".to_string()
+    })?;
     let parent_sock = UnixDatagram::from(a);
     let child_sock = UnixDatagram::from(b);
 
@@ -144,7 +148,9 @@ pub fn run_stages(
     // (both sockets and the plan/child_action closure are either moved in
     // or already fully constructed before the fork), so there is no
     // fork-safety hazard here.
-    match unsafe { fork() }.context("fork (stage1)")? {
+    match unsafe { fork() }.with_context(|| {
+        "syscall fork() for stage1: failed; hint: check pids.max, memory, or pid limits (fork needs free pid and memory)".to_string()
+    })? {
         ForkResult::Child => {
             drop(parent_sock);
             // Any error here must be REPORTED over the socket, not just
@@ -269,17 +275,29 @@ fn stage1(
     // unshare(CLONE_NEWUSER) and fails with EPERM after it, confirming the
     // ordering is load-bearing, not just a theoretical concern.
     for (ns_type, path) in &plan.join {
-        let f = std::fs::File::open(path)
-            .with_context(|| format!("opening namespace join target {}", path.display()))?;
-        nix::sched::setns(&f, ns_type.clone_flag())
-            .with_context(|| format!("setns into pre-existing {ns_type:?} namespace at {}", path.display()))?;
+        let f = std::fs::File::open(path).with_context(|| {
+            format!(
+                "syscall open(path={}) for stage1 setns(ns={ns_type:?}): failed; hint: join target must exist (pinned ns at /run/kestrel/<id>/ns/<type>)",
+                path.display()
+            )
+        })?;
+        nix::sched::setns(&f, ns_type.clone_flag()).with_context(|| {
+            format!(
+                "syscall setns(fd={}, nstype={ns_type:?} clone_flag={:#x}) at {}: failed; hint: must hold CAP_SYS_ADMIN in target's owning userns",
+                f.as_raw_fd(),
+                ns_type.clone_flag().bits(),
+                path.display()
+            )
+        })?;
     }
 
     // Create the user namespace FIRST and alone. Combining it with the
     // others in one unshare() works, but separating makes the ordering
     // explicit and the failure modes far easier to read.
     if plan.has_user_ns() {
-        unshare(CloneFlags::CLONE_NEWUSER).context("unshare(CLONE_NEWUSER)")?;
+        unshare(CloneFlags::CLONE_NEWUSER).with_context(|| {
+            "syscall unshare(CLONE_NEWUSER): failed; hint: kernel may have unprivileged_userns_clone disabled (sysctl kernel.unprivileged_userns_clone=1) or seccomp blocked unshare".to_string()
+        })?;
         send_sync(sock, &Sync::RequestMaps)?;
         match recv_sync_timeout(sock, Duration::from_secs(10))? {
             Sync::MapsDone => {}
@@ -288,21 +306,30 @@ fn stage1(
         // We are mapped to 0 inside the userns but our euid is still the
         // old value. setresuid makes us actually root in here, which the
         // remaining unshares require.
-        setresuid(Uid::from_raw(0), Uid::from_raw(0), Uid::from_raw(0))
-            .context("setresuid(0,0,0)")?;
-        setresgid(Gid::from_raw(0), Gid::from_raw(0), Gid::from_raw(0))
-            .context("setresgid(0,0,0)")?;
+        setresuid(Uid::from_raw(0), Uid::from_raw(0), Uid::from_raw(0)).with_context(|| {
+            "syscall setresuid(0,0,0) after unshare(CLONE_NEWUSER): failed; hint: uid_map must cover 0->host uid, check /etc/subuid mapping".to_string()
+        })?;
+        setresgid(Gid::from_raw(0), Gid::from_raw(0), Gid::from_raw(0)).with_context(|| {
+            "syscall setresgid(0,0,0) after unshare(CLONE_NEWUSER): failed; hint: gid_map must cover 0->host gid with setgroups=deny first".to_string()
+        })?;
     }
 
     // Everything else, minus user (already done) and pid (handled next).
     let rest = flags - CloneFlags::CLONE_NEWUSER;
     if !rest.is_empty() {
-        unshare(rest).with_context(|| format!("unshare({rest:?})"))?;
+        unshare(rest).with_context(|| {
+            format!(
+                "syscall unshare(flags={rest:?} bits={:#x}): failed; hint: needs CAP_SYS_ADMIN before userns or privileged caps after; check kernel ns support",
+                rest.bits()
+            )
+        })?;
     }
 
     // Does NOT move us. Our next child becomes PID 1 of the new namespace.
     if plan.has_pid_ns() {
-        unshare(CloneFlags::CLONE_NEWPID).context("unshare(CLONE_NEWPID)")?;
+        unshare(CloneFlags::CLONE_NEWPID).with_context(|| {
+            "syscall unshare(CLONE_NEWPID): failed; hint: needs CAP_SYS_ADMIN or prior userns with mapping; /proc must be available for pid ns".to_string()
+        })?;
     }
 
     let init_pid = match cgroup_fd {
@@ -311,7 +338,11 @@ fn stage1(
             // was checked at the top of run_stages, and nothing in stage1
             // spawns a thread before reaching here).
             match unsafe { kestrel_cgroup::clone3::clone_into_cgroup(libc::SIGCHLD as u64, fd) }
-                .context("stage1: placing PID 1 into cgroup via clone3")?
+                .with_context(|| {
+                    format!(
+                        "syscall clone3(flags=CLONE_INTO_CGROUP, cgroup_fd={fd}): failed; hint: kernel may lack clone3 (ENOSYS) or cgroup fd must be open dir fd of target cgroup"
+                    )
+                })?
             {
                 None => {
                     // STAGE 2 — we are PID 1, placed atomically in the
@@ -346,7 +377,9 @@ fn stage1(
         // circumstance. No lock or heap state from the parent (stage1) is
         // touched beyond what `child_action` itself captured before the
         // fork.
-        None => match unsafe { fork() }.context("fork (stage2)")? {
+        None => match unsafe { fork() }.with_context(|| {
+            "syscall fork() for stage2 (PID 1 of new pid ns): failed; hint: check pids.max, memory, or pid exhaustion".to_string()
+        })? {
             ForkResult::Child => {
                 // STAGE 2 — we are PID 1. `child_action` is documented to
                 // never return (see `run_stages`' doc comment for why this

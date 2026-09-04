@@ -17,8 +17,13 @@ pub fn bind_readonly(src: &Path, dst: &Path) -> Result<()> {
     // only becomes a mount point as a side effect of this call succeeding,
     // and step (2) below requires `dst` to already BE a mount point —
     // `MS_REMOUNT` operates on an existing mount, it cannot create one.
-    mount(Some(src), dst, None::<&str>, MsFlags::MS_BIND | MsFlags::MS_REC, None::<&str>)
-        .with_context(|| format!("bind-mounting {} onto {}", src.display(), dst.display()))?;
+    mount(Some(src), dst, None::<&str>, MsFlags::MS_BIND | MsFlags::MS_REC, None::<&str>).with_context(|| {
+        format!(
+            "syscall mount(MS_BIND|MS_REC, src={}, target={}): failed; hint: src must exist, dst must exist and be same file type (file vs dir), needs CAP_SYS_ADMIN",
+            src.display(),
+            dst.display()
+        )
+    })?;
     // (2) Remount to actually apply RDONLY. `MS_REMOUNT` must be combined
     // with `MS_BIND` (not issued alone) because without `MS_BIND` the
     // kernel would try to remount the underlying filesystem's real mount
@@ -39,6 +44,11 @@ pub fn bind_readonly(src: &Path, dst: &Path) -> Result<()> {
         MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_REC,
         None::<&str>,
     )
-    .with_context(|| format!("remounting {} read-only", dst.display()))?;
+    .with_context(|| {
+        format!(
+            "syscall mount(MS_BIND|MS_REMOUNT|MS_RDONLY|MS_REC, target={}): failed to remount read-only; hint: target must already be a mount point (bind step must have succeeded), single-call MS_BIND|MS_RDONLY without remount silently ignores RDONLY",
+            dst.display()
+        )
+    })?;
     Ok(())
 }

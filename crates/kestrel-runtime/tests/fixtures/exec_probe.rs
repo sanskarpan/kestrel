@@ -34,8 +34,8 @@ fn main() {
         let mut report = String::new();
         for name in NS_PROC_NAMES {
             let path = format!("/proc/self/ns/{name}");
-            let st = nix::sys::stat::stat(path.as_str())
-                .unwrap_or_else(|e| panic!("stat {path}: {e}"));
+            let st =
+                nix::sys::stat::stat(path.as_str()).unwrap_or_else(|e| panic!("stat {path}: {e}"));
             report.push_str(&format!("{name} {} {}\n", st.st_dev, st.st_ino));
         }
         let mut f = std::fs::File::create(&output_path)
@@ -45,14 +45,20 @@ fn main() {
     }
 
     if let Ok(sig) = std::env::var("KESTREL_TEST_SIGNAL") {
-        assert_eq!(sig, "KILL", "this fixture only knows how to self-signal KILL");
+        assert_eq!(
+            sig, "KILL",
+            "this fixture only knows how to self-signal KILL"
+        );
         nix::sys::signal::raise(nix::sys::signal::Signal::SIGKILL).expect("raise SIGKILL");
         unreachable!("SIGKILL cannot be caught or ignored");
     }
 
     let code = std::env::var("KESTREL_TEST_EXIT_CODE")
         .ok()
-        .map(|s| s.parse::<i32>().expect("KESTREL_TEST_EXIT_CODE must parse as i32"))
+        .map(|s| {
+            s.parse::<i32>()
+                .expect("KESTREL_TEST_EXIT_CODE must parse as i32")
+        })
         .unwrap_or(0);
     std::process::exit(code);
 }

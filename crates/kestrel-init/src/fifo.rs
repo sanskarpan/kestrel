@@ -17,9 +17,13 @@ use anyhow::{Context, Result};
 /// the readiness byte `kestrel start` writes; its content is not
 /// meaningful, only the fact that it arrived.
 pub fn block_until_started(fifo_path: &Path) -> Result<()> {
-    let mut f = OpenOptions::new().read(true).open(fifo_path).with_context(|| format!("opening {}", fifo_path.display()))?;
+    let mut f = OpenOptions::new()
+        .read(true)
+        .open(fifo_path)
+        .with_context(|| format!("opening {}", fifo_path.display()))?;
     let mut buf = [0u8; 1];
-    f.read_exact(&mut buf).context("blocking read on exec fifo")?;
+    f.read_exact(&mut buf)
+        .context("blocking read on exec fifo")?;
     Ok(())
 }
 
@@ -65,7 +69,10 @@ mod tests {
                     // Writer: delay first so the parent's blocking read
                     // genuinely has to wait, not race a same-instant open.
                     std::thread::sleep(WRITER_DELAY);
-                    let w = OpenOptions::new().write(true).open(&fifo_path).expect("open fifo for writing");
+                    let w = OpenOptions::new()
+                        .write(true)
+                        .open(&fifo_path)
+                        .expect("open fifo for writing");
                     write(&w, b"R").expect("write readiness byte");
                     // SAFETY: _exit() is async-signal-safe and never
                     // returns; called instead of process::exit() so the

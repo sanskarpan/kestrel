@@ -115,6 +115,7 @@ pub struct Bootstrap {
 pub fn send_bootstrap(fd: RawFd, bootstrap: &Bootstrap) -> Result<()> {
     let json = serde_json::to_vec(bootstrap).context("serializing Bootstrap")?;
     let len = (json.len() as u32).to_be_bytes();
+    // SAFETY: fd is a valid open fd for this bootstrap write; File is mem::forgotten so the fd is not closed.
     let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
     file.write_all(&len)
         .context("writing bootstrap length prefix")?;
@@ -124,6 +125,7 @@ pub fn send_bootstrap(fd: RawFd, bootstrap: &Bootstrap) -> Result<()> {
 }
 
 pub fn recv_bootstrap(fd: RawFd) -> Result<Bootstrap> {
+    // SAFETY: fd is a valid open fd for this bootstrap read; File is mem::forgotten so the fd is not closed.
     let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
     let mut len_buf = [0u8; 4];
     file.read_exact(&mut len_buf)

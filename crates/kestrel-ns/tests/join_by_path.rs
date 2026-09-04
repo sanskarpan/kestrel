@@ -66,8 +66,8 @@ fn test_setns_into_host_owned_ns_succeeds_before_unshare_newuser_fails_after() {
     // the OWNING userns, not about "is this fd the same namespace as
     // current".
     run_isolated(|| {
-        let target = std::fs::File::open("/proc/self/ns/uts")
-            .expect("open own uts ns before any unshare");
+        let target =
+            std::fs::File::open("/proc/self/ns/uts").expect("open own uts ns before any unshare");
         let result = nix::sched::setns(&target, CloneFlags::CLONE_NEWUTS);
         assert!(
             result.is_ok(),
@@ -85,8 +85,8 @@ fn test_setns_into_host_owned_ns_succeeds_before_unshare_newuser_fails_after() {
     // check fails immediately (EPERM) even though the process is real
     // root and was fully privileged in the host namespace a moment ago.
     run_isolated(|| {
-        let target = std::fs::File::open("/proc/self/ns/uts")
-            .expect("open own uts ns before any unshare");
+        let target =
+            std::fs::File::open("/proc/self/ns/uts").expect("open own uts ns before any unshare");
         nix::sched::unshare(CloneFlags::CLONE_NEWUSER).expect("unshare(CLONE_NEWUSER)");
         let result = nix::sched::setns(&target, CloneFlags::CLONE_NEWUTS);
         assert!(
@@ -172,10 +172,8 @@ fn test_run_stages_join_reaches_pinned_namespace_not_hosts_own() {
             }],
         };
 
-        let result = run_stages(&plan, None, || {
-            loop {
-                std::thread::sleep(Duration::from_secs(3600));
-            }
+        let result = run_stages(&plan, None, || loop {
+            std::thread::sleep(Duration::from_secs(3600));
         })
         .expect(
             "run_stages must succeed: the join must happen before \

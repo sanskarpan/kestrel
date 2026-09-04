@@ -113,8 +113,13 @@ fn build_lifecycle_synthetic_rootfs(dest: &Path) {
          build-lifecycle-fixture-static` first.",
         fixture_path.display()
     );
-    std::fs::copy(&fixture_path, dest.join("fixture"))
-        .unwrap_or_else(|e| panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display()));
+    std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
+        panic!(
+            "copy {} to {}: {e}",
+            fixture_path.display(),
+            dest.join("fixture").display()
+        )
+    });
     std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755))
         .expect("chmod fixture binary");
 }
@@ -188,19 +193,31 @@ fn write_daemon_config(
 /// Spawns a real `kestreld` subprocess, its own stdout/stderr redirected to
 /// real files under `log_dir` — never read directly, just there so a
 /// failure's root cause is inspectable after the fact.
-fn spawn_real_kestreld(kestreld_bin: &Path, config_path: &Path, log_dir: &Path, log_tag: &str) -> (tokio::process::Child, i32) {
-    let stdout_log =
-        std::fs::File::create(log_dir.join(format!("{log_tag}.stdout.log"))).expect("create kestreld stdout log");
-    let stderr_log =
-        std::fs::File::create(log_dir.join(format!("{log_tag}.stderr.log"))).expect("create kestreld stderr log");
+fn spawn_real_kestreld(
+    kestreld_bin: &Path,
+    config_path: &Path,
+    log_dir: &Path,
+    log_tag: &str,
+) -> (tokio::process::Child, i32) {
+    let stdout_log = std::fs::File::create(log_dir.join(format!("{log_tag}.stdout.log")))
+        .expect("create kestreld stdout log");
+    let stderr_log = std::fs::File::create(log_dir.join(format!("{log_tag}.stderr.log")))
+        .expect("create kestreld stderr log");
     let child = tokio::process::Command::new(kestreld_bin)
         .arg("--config")
         .arg(config_path)
         .stdout(std::process::Stdio::from(stdout_log))
         .stderr(std::process::Stdio::from(stderr_log))
         .spawn()
-        .unwrap_or_else(|e| panic!("spawn real kestreld subprocess ({}): {e}", kestreld_bin.display()));
-    let pid = child.id().expect("just-spawned kestreld child has a real pid") as i32;
+        .unwrap_or_else(|e| {
+            panic!(
+                "spawn real kestreld subprocess ({}): {e}",
+                kestreld_bin.display()
+            )
+        });
+    let pid = child
+        .id()
+        .expect("just-spawned kestreld child has a real pid") as i32;
     (child, pid)
 }
 
@@ -218,8 +235,15 @@ async fn poll_until<T, F: FnMut() -> Option<T>>(timeout: Duration, mut probe: F)
 }
 
 async fn wait_socket_ready(socket_path: &Path) {
-    let ready = poll_until(Duration::from_secs(20), || std::os::unix::net::UnixStream::connect(socket_path).ok()).await;
-    assert!(ready.is_some(), "kestreld's unix socket at {} never became connectable", socket_path.display());
+    let ready = poll_until(Duration::from_secs(20), || {
+        std::os::unix::net::UnixStream::connect(socket_path).ok()
+    })
+    .await;
+    assert!(
+        ready.is_some(),
+        "kestreld's unix socket at {} never became connectable",
+        socket_path.display()
+    );
 }
 
 fn kestreld_bin() -> PathBuf {
@@ -233,7 +257,10 @@ fn kestreld_bin() -> PathBuf {
 }
 
 async fn shutdown_kestreld(mut child: tokio::process::Child, pid: i32) {
-    let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGTERM);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid),
+        nix::sys::signal::Signal::SIGTERM,
+    );
     let _ = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
 }
 
@@ -254,7 +281,10 @@ async fn shutdown_kestreld(mut child: tokio::process::Child, pid: i32) {
 struct KestreldGuard(i32);
 impl Drop for KestreldGuard {
     fn drop(&mut self) {
-        let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(self.0), nix::sys::signal::Signal::SIGKILL);
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(self.0),
+            nix::sys::signal::Signal::SIGKILL,
+        );
     }
 }
 
@@ -275,7 +305,10 @@ impl Drop for ContainerCleanup {
         let state_path = self.run_dir.join(&self.id).join("state.json");
         if let Ok(state) = kestrel_oci::state::State::read(&state_path) {
             if let Some(pid) = state.pid {
-                let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL);
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(pid),
+                    nix::sys::signal::Signal::SIGKILL,
+                );
             }
         }
         let _ = std::process::Command::new("pkill")
@@ -317,7 +350,13 @@ impl Drop for ContainerCleanup {
 // HTTP/WS helpers
 // ===========================================================================
 
-async fn poll_container_status(client: &reqwest::Client, base: &str, id: &str, want: &str, timeout: Duration) -> Value {
+async fn poll_container_status(
+    client: &reqwest::Client,
+    base: &str,
+    id: &str,
+    want: &str,
+    timeout: Duration,
+) -> Value {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if let Ok(resp) = client.get(format!("{base}/containers/{id}")).send().await {
@@ -349,7 +388,10 @@ async fn collect_sse_until<T>(
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(!remaining.is_zero(), "timed out waiting for the expected SSE event");
+        assert!(
+            !remaining.is_zero(),
+            "timed out waiting for the expected SSE event"
+        );
         let chunk = tokio::time::timeout(remaining, resp.chunk())
             .await
             .unwrap_or_else(|_| panic!("timed out waiting for next SSE chunk"))
@@ -361,10 +403,15 @@ async fn collect_sse_until<T>(
         while let Some(idx) = acc.find("\n\n") {
             let piece: String = acc.drain(..idx + 2).collect();
             for line in piece.lines() {
-                let Some(json_str) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) else {
+                let Some(json_str) = line
+                    .strip_prefix("data: ")
+                    .or_else(|| line.strip_prefix("data:"))
+                else {
                     continue;
                 };
-                let Ok(v) = serde_json::from_str::<Value>(json_str.trim()) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(json_str.trim()) else {
+                    continue;
+                };
                 if let Some(result) = on_event(v) {
                     return result;
                 }
@@ -382,8 +429,16 @@ struct EventCollector {
 }
 
 async fn subscribe_events(client: &reqwest::Client, base: &str) -> EventCollector {
-    let mut resp = client.get(format!("{base}/events")).send().await.expect("GET /events");
-    assert_eq!(resp.status(), reqwest::StatusCode::OK, "GET /events must succeed");
+    let mut resp = client
+        .get(format!("{base}/events"))
+        .send()
+        .await
+        .expect("GET /events");
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::OK,
+        "GET /events must succeed"
+    );
     let events = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let events2 = events.clone();
     let task = tokio::spawn(async move {
@@ -393,7 +448,10 @@ async fn subscribe_events(client: &reqwest::Client, base: &str) -> EventCollecto
             while let Some(idx) = acc.find("\n\n") {
                 let piece: String = acc.drain(..idx + 2).collect();
                 for line in piece.lines() {
-                    let Some(json_str) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) else {
+                    let Some(json_str) = line
+                        .strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"))
+                    else {
                         continue;
                     };
                     if let Ok(v) = serde_json::from_str::<Value>(json_str.trim()) {
@@ -416,15 +474,25 @@ impl Drop for EventCollector {
 /// echoes until at least `payload.len()` bytes have come back (or timeout).
 async fn attach_round_trip(addr: &str, id: &str, payload: &[u8]) -> Vec<u8> {
     let url = format!("ws://{addr}/containers/{id}/attach");
-    let (mut ws, _resp) = tokio_tungstenite::connect_async(url).await.expect("connect attach WS endpoint");
-    ws.send(WsMessage::Binary(payload.to_vec().into())).await.expect("send attach payload");
+    let (mut ws, _resp) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("connect attach WS endpoint");
+    ws.send(WsMessage::Binary(payload.to_vec().into()))
+        .await
+        .expect("send attach payload");
 
     let mut collected = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while collected.len() < payload.len() {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(!remaining.is_zero(), "timed out waiting for attach echo; collected so far: {collected:?}");
-        match tokio::time::timeout(remaining, ws.next()).await.expect("attach WS session did not finish in time") {
+        assert!(
+            !remaining.is_zero(),
+            "timed out waiting for attach echo; collected so far: {collected:?}"
+        );
+        match tokio::time::timeout(remaining, ws.next())
+            .await
+            .expect("attach WS session did not finish in time")
+        {
             Some(Ok(WsMessage::Binary(bytes))) => collected.extend_from_slice(&bytes),
             Some(Ok(WsMessage::Close(_))) | None => break,
             Some(Ok(_)) => {}
@@ -440,19 +508,27 @@ async fn attach_round_trip(addr: &str, id: &str, payload: &[u8]) -> Vec<u8> {
 /// output, and returns it plus the reported exit code.
 async fn exec_over_ws(addr: &str, id: &str, cmd: &[&str]) -> (Vec<u8>, Option<i32>) {
     let url = format!("ws://{addr}/containers/{id}/exec");
-    let (mut ws, _resp) = tokio_tungstenite::connect_async(url).await.expect("connect exec WS endpoint");
+    let (mut ws, _resp) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("connect exec WS endpoint");
     let init = json!({ "cmd": cmd, "tty": false });
-    ws.send(WsMessage::Text(init.to_string().into())).await.expect("send exec init message");
+    ws.send(WsMessage::Text(init.to_string().into()))
+        .await
+        .expect("send exec init message");
 
     let mut output = Vec::new();
     let mut exit_code = None;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        match tokio::time::timeout(remaining, ws.next()).await.expect("exec WS session did not finish in time") {
+        match tokio::time::timeout(remaining, ws.next())
+            .await
+            .expect("exec WS session did not finish in time")
+        {
             Some(Ok(WsMessage::Binary(bytes))) => output.extend_from_slice(&bytes),
             Some(Ok(WsMessage::Text(text))) => {
-                let parsed: Value = serde_json::from_str(&text).expect("exec control message is valid JSON");
+                let parsed: Value =
+                    serde_json::from_str(&text).expect("exec control message is valid JSON");
                 if parsed["type"] == "exit" {
                     exit_code = parsed["exit_code"].as_i64().map(|n| n as i32);
                     break;
@@ -491,9 +567,17 @@ async fn test_full_lifecycle_via_http() {
     let port = find_free_tcp_port();
     let http_addr = format!("127.0.0.1:{port}");
     let config_path = scratch_dir.path().join("config.toml");
-    write_daemon_config(&config_path, &socket_path, &http_addr, run_dir.path(), &data_dir, "");
+    write_daemon_config(
+        &config_path,
+        &socket_path,
+        &http_addr,
+        run_dir.path(),
+        &data_dir,
+        "",
+    );
 
-    let (daemon, daemon_pid) = spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
+    let (daemon, daemon_pid) =
+        spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
     let _kestreld_guard = KestreldGuard(daemon_pid);
     wait_socket_ready(&socket_path).await;
 
@@ -518,14 +602,33 @@ async fn test_full_lifecycle_via_http() {
         "create failed: {}",
         create_resp.text().await.unwrap_or_default()
     );
-    let created: Value = create_resp.json().await.expect("parse create response JSON");
-    let id = created["id"].as_str().expect("response has a real id").to_string();
+    let created: Value = create_resp
+        .json()
+        .await
+        .expect("parse create response JSON");
+    let id = created["id"]
+        .as_str()
+        .expect("response has a real id")
+        .to_string();
     assert!(!id.is_empty());
-    let _cleanup = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id.clone(), bridge_mode: false };
+    let _cleanup = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id.clone(),
+        bridge_mode: false,
+    };
 
     // ---- start ----
-    let start_resp = client.post(format!("{base}/containers/{id}/start")).send().await.expect("POST start");
-    assert_eq!(start_resp.status(), reqwest::StatusCode::OK, "start failed: {}", start_resp.text().await.unwrap_or_default());
+    let start_resp = client
+        .post(format!("{base}/containers/{id}/start"))
+        .send()
+        .await
+        .expect("POST start");
+    assert_eq!(
+        start_resp.status(),
+        reqwest::StatusCode::OK,
+        "start failed: {}",
+        start_resp.text().await.unwrap_or_default()
+    );
 
     // ---- poll running, purely via the real HTTP API ----
     poll_container_status(&client, &base, &id, "running", Duration::from_secs(10)).await;
@@ -535,9 +638,16 @@ async fn test_full_lifecycle_via_http() {
     let addr_str = http_addr.clone();
     let payload = b"capstone-full-lifecycle\n";
     let echoed = attach_round_trip(&addr_str, &id, payload).await;
-    assert_eq!(echoed, payload, "attach WS did not echo back the exact bytes sent");
+    assert_eq!(
+        echoed, payload,
+        "attach WS did not echo back the exact bytes sent"
+    );
 
-    let logs_resp = client.get(format!("{base}/containers/{id}/logs")).send().await.expect("GET logs");
+    let logs_resp = client
+        .get(format!("{base}/containers/{id}/logs"))
+        .send()
+        .await
+        .expect("GET logs");
     assert_eq!(logs_resp.status(), reqwest::StatusCode::OK);
     let logs_body = logs_resp.text().await.expect("logs body text");
     assert!(
@@ -557,21 +667,59 @@ async fn test_full_lifecycle_via_http() {
     // (`main.rs`) exec `/bin/echo`, a HOST path, rather than `/fixture`
     // (container-rootfs-only). Same precedent followed here. ----
     let (exec_output, exit_code) = exec_over_ws(&addr_str, &id, &["/bin/sh", "-c", "exit 5"]).await;
-    assert!(exec_output.is_empty(), "unexpected exec output: {exec_output:?}");
-    assert_eq!(exit_code, Some(5), "exec should report the real exit code of /bin/sh -c 'exit 5'");
+    assert!(
+        exec_output.is_empty(),
+        "unexpected exec output: {exec_output:?}"
+    );
+    assert_eq!(
+        exit_code,
+        Some(5),
+        "exec should report the real exit code of /bin/sh -c 'exit 5'"
+    );
 
     // ---- stop ----
-    let stop_resp = client.post(format!("{base}/containers/{id}/stop")).send().await.expect("POST stop");
-    assert!(stop_resp.status().is_success(), "stop failed: {} {}", stop_resp.status(), stop_resp.text().await.unwrap_or_default());
-    let stopped = poll_container_status(&client, &base, &id, "stopped", Duration::from_secs(10)).await;
-    assert_eq!(stopped["exit_code"], json!(143), "expected a plain SIGTERM death (exit_code 143), got {stopped}");
+    let stop_resp = client
+        .post(format!("{base}/containers/{id}/stop"))
+        .send()
+        .await
+        .expect("POST stop");
+    assert!(
+        stop_resp.status().is_success(),
+        "stop failed: {} {}",
+        stop_resp.status(),
+        stop_resp.text().await.unwrap_or_default()
+    );
+    let stopped =
+        poll_container_status(&client, &base, &id, "stopped", Duration::from_secs(10)).await;
+    assert_eq!(
+        stopped["exit_code"],
+        json!(143),
+        "expected a plain SIGTERM death (exit_code 143), got {stopped}"
+    );
 
     // ---- delete ----
-    let delete_resp = client.delete(format!("{base}/containers/{id}")).send().await.expect("DELETE");
-    assert!(delete_resp.status().is_success(), "delete failed: {} {}", delete_resp.status(), delete_resp.text().await.unwrap_or_default());
+    let delete_resp = client
+        .delete(format!("{base}/containers/{id}"))
+        .send()
+        .await
+        .expect("DELETE");
+    assert!(
+        delete_resp.status().is_success(),
+        "delete failed: {} {}",
+        delete_resp.status(),
+        delete_resp.text().await.unwrap_or_default()
+    );
 
-    let not_found = client.get(format!("{base}/containers/{id}")).send().await.expect("GET after delete");
-    assert_eq!(not_found.status(), reqwest::StatusCode::NOT_FOUND, "container should be gone after delete");
+    let not_found = client
+        .get(format!("{base}/containers/{id}"))
+        .send()
+        .await
+        .expect("GET after delete");
+    assert_eq!(
+        not_found.status(),
+        reqwest::StatusCode::NOT_FOUND,
+        "container should be gone after delete"
+    );
 
     shutdown_kestreld(daemon, daemon_pid).await;
 }
@@ -598,9 +746,21 @@ async fn test_daemon_restart_preserves_running_container_and_live_attach() {
     let port1 = find_free_tcp_port();
     let http_addr1 = format!("127.0.0.1:{port1}");
     let config_path1 = scratch_dir.path().join("config1.toml");
-    write_daemon_config(&config_path1, &socket_path1, &http_addr1, run_dir.path(), &data_dir, "");
+    write_daemon_config(
+        &config_path1,
+        &socket_path1,
+        &http_addr1,
+        run_dir.path(),
+        &data_dir,
+        "",
+    );
 
-    let (daemon1, daemon1_pid) = spawn_real_kestreld(&kestreld_bin, &config_path1, scratch_dir.path(), "kestreld1");
+    let (daemon1, daemon1_pid) = spawn_real_kestreld(
+        &kestreld_bin,
+        &config_path1,
+        scratch_dir.path(),
+        "kestreld1",
+    );
     let _kestreld_guard1 = KestreldGuard(daemon1_pid);
     wait_socket_ready(&socket_path1).await;
 
@@ -618,49 +778,95 @@ async fn test_daemon_restart_preserves_running_container_and_live_attach() {
         .send()
         .await
         .expect("POST /containers");
-    assert_eq!(create_resp.status(), reqwest::StatusCode::CREATED, "create failed: {}", create_resp.text().await.unwrap_or_default());
-    let created: Value = create_resp.json().await.expect("parse create response JSON");
-    let id = created["id"].as_str().expect("response has a real id").to_string();
-    let _cleanup = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id.clone(), bridge_mode: false };
+    assert_eq!(
+        create_resp.status(),
+        reqwest::StatusCode::CREATED,
+        "create failed: {}",
+        create_resp.text().await.unwrap_or_default()
+    );
+    let created: Value = create_resp
+        .json()
+        .await
+        .expect("parse create response JSON");
+    let id = created["id"]
+        .as_str()
+        .expect("response has a real id")
+        .to_string();
+    let _cleanup = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id.clone(),
+        bridge_mode: false,
+    };
 
-    let start_resp = client.post(format!("{base1}/containers/{id}/start")).send().await.expect("POST start");
+    let start_resp = client
+        .post(format!("{base1}/containers/{id}/start"))
+        .send()
+        .await
+        .expect("POST start");
     assert_eq!(start_resp.status(), reqwest::StatusCode::OK);
     poll_container_status(&client, &base1, &id, "running", Duration::from_secs(10)).await;
 
     // ---- (b) live attach through kestreld #1, BEFORE the restart ----
     let before_payload = b"before-restart\n";
     let echoed_before = attach_round_trip(&http_addr1, &id, before_payload).await;
-    assert_eq!(echoed_before, before_payload, "pre-restart attach echo mismatch");
+    assert_eq!(
+        echoed_before, before_payload,
+        "pre-restart attach echo mismatch"
+    );
 
     // ---- kill kestreld #1's OWN process — never the container ----
     let state_path = run_dir.path().join(&id).join("state.json");
-    let state_before_kill = kestrel_oci::state::State::read(&state_path).expect("read state.json before killing kestreld #1");
+    let state_before_kill = kestrel_oci::state::State::read(&state_path)
+        .expect("read state.json before killing kestreld #1");
     let entrypoint_pid = state_before_kill.pid.expect("Running state carries a pid");
 
     let mut daemon1 = daemon1;
-    let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(daemon1_pid), nix::sys::signal::Signal::SIGTERM);
+    let _ = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(daemon1_pid),
+        nix::sys::signal::Signal::SIGTERM,
+    );
     let wait_result = tokio::time::timeout(Duration::from_secs(10), daemon1.wait()).await;
-    assert!(wait_result.is_ok(), "kestreld #1 did not exit within 10s of SIGTERM");
+    assert!(
+        wait_result.is_ok(),
+        "kestreld #1 did not exit within 10s of SIGTERM"
+    );
 
     // The container's real entrypoint must still be alive — nothing about
     // it is a child of kestreld (design doc §10/§2).
-    let still_alive = nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_ok();
-    assert!(still_alive, "container entrypoint (pid {entrypoint_pid}) should survive kestreld #1's death");
+    let still_alive =
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_ok();
+    assert!(
+        still_alive,
+        "container entrypoint (pid {entrypoint_pid}) should survive kestreld #1's death"
+    );
 
     // ---- spin up kestreld #2, pointed at the SAME run_dir/data_dir ----
     let socket_path2 = run_dir.path().join("kestreld2.sock");
     let port2 = find_free_tcp_port();
     let http_addr2 = format!("127.0.0.1:{port2}");
     let config_path2 = scratch_dir.path().join("config2.toml");
-    write_daemon_config(&config_path2, &socket_path2, &http_addr2, run_dir.path(), &data_dir, "");
-    let (daemon2, daemon2_pid) = spawn_real_kestreld(&kestreld_bin, &config_path2, scratch_dir.path(), "kestreld2");
+    write_daemon_config(
+        &config_path2,
+        &socket_path2,
+        &http_addr2,
+        run_dir.path(),
+        &data_dir,
+        "",
+    );
+    let (daemon2, daemon2_pid) = spawn_real_kestreld(
+        &kestreld_bin,
+        &config_path2,
+        scratch_dir.path(),
+        "kestreld2",
+    );
     let _kestreld_guard2 = KestreldGuard(daemon2_pid);
     wait_socket_ready(&socket_path2).await;
     let base2 = format!("http://{http_addr2}");
 
     // ---- (a) GET /containers/:id shows it still running, via the fresh
     // daemon's own startup recovery ----
-    let recovered = poll_container_status(&client, &base2, &id, "running", Duration::from_secs(10)).await;
+    let recovered =
+        poll_container_status(&client, &base2, &id, "running", Duration::from_secs(10)).await;
     assert_eq!(recovered["id"], id);
 
     // ---- (b) WS attach to it still works — bytes round-trip through the
@@ -672,27 +878,57 @@ async fn test_daemon_restart_preserves_running_container_and_live_attach() {
     // genuinely echoing these bytes back. ----
     let after_payload = b"after-restart\n";
     let echoed_after = attach_round_trip(&http_addr2, &id, after_payload).await;
-    assert_eq!(echoed_after, after_payload, "post-restart attach echo mismatch through the surviving shim");
+    assert_eq!(
+        echoed_after, after_payload,
+        "post-restart attach echo mismatch through the surviving shim"
+    );
 
     // ---- (c) logs show continuous output spanning the restart, no gap ----
-    let logs_resp = client.get(format!("{base2}/containers/{id}/logs")).send().await.expect("GET logs via kestreld #2");
+    let logs_resp = client
+        .get(format!("{base2}/containers/{id}/logs"))
+        .send()
+        .await
+        .expect("GET logs via kestreld #2");
     assert_eq!(logs_resp.status(), reqwest::StatusCode::OK);
     let logs_body = logs_resp.text().await.expect("logs body text");
-    let before_idx = logs_body.find("before-restart").unwrap_or_else(|| panic!("missing pre-restart log line in: {logs_body}"));
-    let after_idx = logs_body.find("after-restart").unwrap_or_else(|| panic!("missing post-restart log line in: {logs_body}"));
+    let before_idx = logs_body
+        .find("before-restart")
+        .unwrap_or_else(|| panic!("missing pre-restart log line in: {logs_body}"));
+    let after_idx = logs_body
+        .find("after-restart")
+        .unwrap_or_else(|| panic!("missing post-restart log line in: {logs_body}"));
     assert!(
         before_idx < after_idx,
         "expected before-restart to precede after-restart in the continuous log stream, got: {logs_body}"
     );
 
     // ---- cleanup, via kestreld #2 ----
-    let stop_resp = client.post(format!("{base2}/containers/{id}/stop")).send().await.expect("POST stop via kestreld #2");
-    assert!(stop_resp.status().is_success(), "stop via recovery daemon failed: {}", stop_resp.status());
-    let delete_resp = client.delete(format!("{base2}/containers/{id}")).send().await.expect("DELETE via kestreld #2");
-    assert!(delete_resp.status().is_success(), "delete via recovery daemon failed: {}", delete_resp.status());
+    let stop_resp = client
+        .post(format!("{base2}/containers/{id}/stop"))
+        .send()
+        .await
+        .expect("POST stop via kestreld #2");
+    assert!(
+        stop_resp.status().is_success(),
+        "stop via recovery daemon failed: {}",
+        stop_resp.status()
+    );
+    let delete_resp = client
+        .delete(format!("{base2}/containers/{id}"))
+        .send()
+        .await
+        .expect("DELETE via kestreld #2");
+    assert!(
+        delete_resp.status().is_success(),
+        "delete via recovery daemon failed: {}",
+        delete_resp.status()
+    );
 
     let gone = nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_err();
-    assert!(gone, "container entrypoint should be gone after a real stop+delete via the recovery daemon");
+    assert!(
+        gone,
+        "container entrypoint should be gone after a real stop+delete via the recovery daemon"
+    );
 
     shutdown_kestreld(daemon2, daemon2_pid).await;
 }
@@ -719,9 +955,17 @@ async fn test_events_and_metrics_flow_end_to_end() {
     let port = find_free_tcp_port();
     let http_addr = format!("127.0.0.1:{port}");
     let config_path = scratch_dir.path().join("config.toml");
-    write_daemon_config(&config_path, &socket_path, &http_addr, run_dir.path(), &data_dir, "");
+    write_daemon_config(
+        &config_path,
+        &socket_path,
+        &http_addr,
+        run_dir.path(),
+        &data_dir,
+        "",
+    );
 
-    let (daemon, daemon_pid) = spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
+    let (daemon, daemon_pid) =
+        spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
     let _kestreld_guard = KestreldGuard(daemon_pid);
     wait_socket_ready(&socket_path).await;
 
@@ -749,24 +993,49 @@ async fn test_events_and_metrics_flow_end_to_end() {
         .await
         .expect("POST /containers");
     assert_eq!(create_resp.status(), reqwest::StatusCode::CREATED);
-    let created: Value = create_resp.json().await.expect("parse create response JSON");
-    let id = created["id"].as_str().expect("response has a real id").to_string();
-    let _cleanup = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id.clone(), bridge_mode: false };
+    let created: Value = create_resp
+        .json()
+        .await
+        .expect("parse create response JSON");
+    let id = created["id"]
+        .as_str()
+        .expect("response has a real id")
+        .to_string();
+    let _cleanup = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id.clone(),
+        bridge_mode: false,
+    };
 
-    let start_resp = client.post(format!("{base}/containers/{id}/start")).send().await.expect("POST start");
+    let start_resp = client
+        .post(format!("{base}/containers/{id}/start"))
+        .send()
+        .await
+        .expect("POST start");
     assert_eq!(start_resp.status(), reqwest::StatusCode::OK);
     poll_container_status(&client, &base, &id, "running", Duration::from_secs(10)).await;
 
     // ---- /pressure returns real, structurally valid PSI numbers while
     // genuinely Running ----
-    let pressure_resp = client.get(format!("{base}/containers/{id}/pressure")).send().await.expect("GET pressure");
-    assert_eq!(pressure_resp.status(), reqwest::StatusCode::OK, "pressure endpoint must succeed for a Running container");
+    let pressure_resp = client
+        .get(format!("{base}/containers/{id}/pressure"))
+        .send()
+        .await
+        .expect("GET pressure");
+    assert_eq!(
+        pressure_resp.status(),
+        reqwest::StatusCode::OK,
+        "pressure endpoint must succeed for a Running container"
+    );
     let pressure: Value = pressure_resp.json().await.expect("parse pressure JSON");
     for resource in ["cpu", "memory", "io"] {
         let avg10 = pressure[resource]["some"]["avg10"]
             .as_f64()
             .unwrap_or_else(|| panic!("{resource}.some.avg10 missing/non-numeric in {pressure}"));
-        assert!((0.0..=100.0).contains(&avg10), "{resource}.some.avg10 out of a plausible PSI range: {avg10}");
+        assert!(
+            (0.0..=100.0).contains(&avg10),
+            "{resource}.some.avg10 out of a plausible PSI range: {avg10}"
+        );
         assert!(
             pressure[resource]["some"]["total_us"].is_u64(),
             "{resource}.some.total_us must be a real integer counter in {pressure}"
@@ -774,11 +1043,19 @@ async fn test_events_and_metrics_flow_end_to_end() {
     }
 
     // ---- stop -> die (via the metrics sampler) -> delete -> destroy ----
-    let stop_resp = client.post(format!("{base}/containers/{id}/stop")).send().await.expect("POST stop");
+    let stop_resp = client
+        .post(format!("{base}/containers/{id}/stop"))
+        .send()
+        .await
+        .expect("POST stop");
     assert!(stop_resp.status().is_success());
     poll_container_status(&client, &base, &id, "stopped", Duration::from_secs(10)).await;
 
-    let delete_resp = client.delete(format!("{base}/containers/{id}")).send().await.expect("DELETE");
+    let delete_resp = client
+        .delete(format!("{base}/containers/{id}"))
+        .send()
+        .await
+        .expect("DELETE");
     assert!(delete_resp.status().is_success());
 
     // ---- assert the full expected sequence, with NO duplicates
@@ -803,14 +1080,24 @@ async fn test_events_and_metrics_flow_end_to_end() {
         }
     };
 
-    let types: Vec<&str> = this_container_events.iter().map(|e| e["type"].as_str().unwrap_or("<non-string>")).collect();
+    let types: Vec<&str> = this_container_events
+        .iter()
+        .map(|e| e["type"].as_str().unwrap_or("<non-string>"))
+        .collect();
     assert_eq!(
         types,
         vec!["container.create", "container.start", "container.die", "container.destroy"],
         "unexpected/duplicated event sequence for {id}: {types:?} (full events: {this_container_events:?})"
     );
-    let die_event = this_container_events.iter().find(|e| e["type"] == "container.die").unwrap();
-    assert_eq!(die_event["exit_code"], json!(143), "expected the real SIGTERM exit_code on container.die: {die_event}");
+    let die_event = this_container_events
+        .iter()
+        .find(|e| e["type"] == "container.die")
+        .unwrap();
+    assert_eq!(
+        die_event["exit_code"],
+        json!(143),
+        "expected the real SIGTERM exit_code on container.die: {die_event}"
+    );
 
     drop(collector);
     shutdown_kestreld(daemon, daemon_pid).await;
@@ -843,9 +1130,17 @@ async fn test_image_pull_and_container_from_image() {
     let port = find_free_tcp_port();
     let http_addr = format!("127.0.0.1:{port}");
     let config_path = scratch_dir.path().join("config.toml");
-    write_daemon_config(&config_path, &socket_path, &http_addr, run_dir.path(), &data_dir, "");
+    write_daemon_config(
+        &config_path,
+        &socket_path,
+        &http_addr,
+        run_dir.path(),
+        &data_dir,
+        "",
+    );
 
-    let (daemon, daemon_pid) = spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
+    let (daemon, daemon_pid) =
+        spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
     let _kestreld_guard = KestreldGuard(daemon_pid);
     wait_socket_ready(&socket_path).await;
 
@@ -859,11 +1154,22 @@ async fn test_image_pull_and_container_from_image() {
         .send()
         .await
         .expect("POST /images/pull");
-    assert_eq!(pull_resp.status(), reqwest::StatusCode::OK, "POST /images/pull must return 200 (an SSE stream)");
+    assert_eq!(
+        pull_resp.status(),
+        reqwest::StatusCode::OK,
+        "POST /images/pull must return 200 (an SSE stream)"
+    );
 
     let pull_chain_ids = collect_sse_until(pull_resp, Duration::from_secs(180), |v| {
         if v["type"] == "Complete" {
-            Some(v["chain_ids"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_string()).collect::<Vec<_>>())
+            Some(
+                v["chain_ids"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|c| c.as_str().unwrap().to_string())
+                    .collect::<Vec<_>>(),
+            )
         } else if v["type"] == "Error" {
             panic!("pull failed: {v}");
         } else {
@@ -871,7 +1177,10 @@ async fn test_image_pull_and_container_from_image() {
         }
     })
     .await;
-    assert!(!pull_chain_ids.is_empty(), "pull must produce at least one real chain-id");
+    assert!(
+        !pull_chain_ids.is_empty(),
+        "pull must produce at least one real chain-id"
+    );
 
     // ---- create a container FROM that pulled image — exercising Task 3's
     // annotation fast path for real, end to end (kestreld writes
@@ -887,25 +1196,65 @@ async fn test_image_pull_and_container_from_image() {
         .send()
         .await
         .expect("POST /containers with image");
-    assert_eq!(create_resp.status(), reqwest::StatusCode::CREATED, "create-from-image failed: {}", create_resp.text().await.unwrap_or_default());
-    let created: Value = create_resp.json().await.expect("parse create response JSON");
-    let id = created["id"].as_str().expect("response has a real id").to_string();
-    let _cleanup = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id.clone(), bridge_mode: false };
+    assert_eq!(
+        create_resp.status(),
+        reqwest::StatusCode::CREATED,
+        "create-from-image failed: {}",
+        create_resp.text().await.unwrap_or_default()
+    );
+    let created: Value = create_resp
+        .json()
+        .await
+        .expect("parse create response JSON");
+    let id = created["id"]
+        .as_str()
+        .expect("response has a real id")
+        .to_string();
+    let _cleanup = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id.clone(),
+        bridge_mode: false,
+    };
 
-    let start_resp = client.post(format!("{base}/containers/{id}/start")).send().await.expect("POST start");
-    assert_eq!(start_resp.status(), reqwest::StatusCode::OK, "start failed: {}", start_resp.text().await.unwrap_or_default());
+    let start_resp = client
+        .post(format!("{base}/containers/{id}/start"))
+        .send()
+        .await
+        .expect("POST start");
+    assert_eq!(
+        start_resp.status(),
+        reqwest::StatusCode::OK,
+        "start failed: {}",
+        start_resp.text().await.unwrap_or_default()
+    );
 
     // ---- confirm it runs correctly: real exit_code 0, real stdout ----
-    let stopped = poll_container_status(&client, &base, &id, "stopped", Duration::from_secs(15)).await;
-    assert_eq!(stopped["exit_code"], json!(0), "expected /bin/echo to exit 0: {stopped}");
+    let stopped =
+        poll_container_status(&client, &base, &id, "stopped", Duration::from_secs(15)).await;
+    assert_eq!(
+        stopped["exit_code"],
+        json!(0),
+        "expected /bin/echo to exit 0: {stopped}"
+    );
 
-    let logs_resp = client.get(format!("{base}/containers/{id}/logs")).send().await.expect("GET logs");
+    let logs_resp = client
+        .get(format!("{base}/containers/{id}/logs"))
+        .send()
+        .await
+        .expect("GET logs");
     assert_eq!(logs_resp.status(), reqwest::StatusCode::OK);
     let logs_body = logs_resp.text().await.expect("logs body text");
-    assert!(logs_body.contains("hello-from-alpine-capstone"), "expected real alpine /bin/echo output in logs, got: {logs_body}");
+    assert!(
+        logs_body.contains("hello-from-alpine-capstone"),
+        "expected real alpine /bin/echo output in logs, got: {logs_body}"
+    );
 
     // ---- confirm /containers/:id/layers reports the real chain-ids used ----
-    let layers_resp = client.get(format!("{base}/containers/{id}/layers")).send().await.expect("GET layers");
+    let layers_resp = client
+        .get(format!("{base}/containers/{id}/layers"))
+        .send()
+        .await
+        .expect("GET layers");
     assert_eq!(layers_resp.status(), reqwest::StatusCode::OK);
     let layers: Value = layers_resp.json().await.expect("parse layers JSON");
     let reported_chain_ids: Vec<String> = layers["layers"]
@@ -927,11 +1276,18 @@ async fn test_image_pull_and_container_from_image() {
         );
     }
 
-    let delete_resp = client.delete(format!("{base}/containers/{id}")).send().await.expect("DELETE");
+    let delete_resp = client
+        .delete(format!("{base}/containers/{id}"))
+        .send()
+        .await
+        .expect("DELETE");
     assert!(delete_resp.status().is_success());
 
     // Hygiene: release the pulled image too.
-    let _ = client.delete(format!("{base}/images/alpine:latest")).send().await;
+    let _ = client
+        .delete(format!("{base}/images/alpine:latest"))
+        .send()
+        .await;
 
     shutdown_kestreld(daemon, daemon_pid).await;
 }
@@ -943,7 +1299,10 @@ async fn test_image_pull_and_container_from_image() {
 const T5_PING: &[u8; 4] = b"PING";
 const T5_PONG: &[u8; 4] = b"PONG";
 
-fn t5_accept_with_timeout(listener: &std::net::TcpListener, timeout: Duration) -> anyhow::Result<(std::net::TcpStream, std::net::SocketAddr)> {
+fn t5_accept_with_timeout(
+    listener: &std::net::TcpListener,
+    timeout: Duration,
+) -> anyhow::Result<(std::net::TcpStream, std::net::SocketAddr)> {
     listener.set_nonblocking(true)?;
     let deadline = std::time::Instant::now() + timeout;
     loop {
@@ -953,7 +1312,10 @@ fn t5_accept_with_timeout(listener: &std::net::TcpListener, timeout: Duration) -
                 return Ok((stream, peer));
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                anyhow::ensure!(std::time::Instant::now() < deadline, "timed out waiting for a connection");
+                anyhow::ensure!(
+                    std::time::Instant::now() < deadline,
+                    "timed out waiting for a connection"
+                );
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(e) => return Err(e.into()),
@@ -1030,16 +1392,28 @@ async fn test_bridge_network_container_to_container() {
                          mtu = 1500\n\
                          iptables = false\n\
                          rootless_backend = \"pasta\"\n";
-    write_daemon_config(&config_path, &socket_path, &http_addr, run_dir.path(), &data_dir, network_toml);
+    write_daemon_config(
+        &config_path,
+        &socket_path,
+        &http_addr,
+        run_dir.path(),
+        &data_dir,
+        network_toml,
+    );
 
-    let (daemon, daemon_pid) = spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
+    let (daemon, daemon_pid) =
+        spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
     let _kestreld_guard = KestreldGuard(daemon_pid);
     wait_socket_ready(&socket_path).await;
 
     let client = reqwest::Client::new();
     let base = format!("http://{http_addr}");
 
-    async fn create_bridge_container(client: &reqwest::Client, base: &str, rootfs: &Path) -> String {
+    async fn create_bridge_container(
+        client: &reqwest::Client,
+        base: &str,
+        rootfs: &Path,
+    ) -> String {
         let resp = client
             .post(format!("{base}/containers"))
             .json(&json!({
@@ -1051,20 +1425,45 @@ async fn test_bridge_network_container_to_container() {
             .send()
             .await
             .expect("POST /containers (bridge)");
-        assert_eq!(resp.status(), reqwest::StatusCode::CREATED, "bridge-mode create failed: {}", resp.text().await.unwrap_or_default());
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::CREATED,
+            "bridge-mode create failed: {}",
+            resp.text().await.unwrap_or_default()
+        );
         let created: Value = resp.json().await.expect("parse create response JSON");
-        created["id"].as_str().expect("response has a real id").to_string()
+        created["id"]
+            .as_str()
+            .expect("response has a real id")
+            .to_string()
     }
 
     let id_a = create_bridge_container(&client, &base, rootfs_dir.path()).await;
     let id_b = create_bridge_container(&client, &base, rootfs_dir.path()).await;
     assert_ne!(id_a, id_b);
-    let _cleanup_a = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id_a.clone(), bridge_mode: true };
-    let _cleanup_b = ContainerCleanup { run_dir: run_dir.path().to_path_buf(), id: id_b.clone(), bridge_mode: true };
+    let _cleanup_a = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id_a.clone(),
+        bridge_mode: true,
+    };
+    let _cleanup_b = ContainerCleanup {
+        run_dir: run_dir.path().to_path_buf(),
+        id: id_b.clone(),
+        bridge_mode: true,
+    };
 
     for id in [&id_a, &id_b] {
-        let resp = client.post(format!("{base}/containers/{id}/start")).send().await.expect("POST start");
-        assert_eq!(resp.status(), reqwest::StatusCode::OK, "start failed for {id}: {}", resp.text().await.unwrap_or_default());
+        let resp = client
+            .post(format!("{base}/containers/{id}/start"))
+            .send()
+            .await
+            .expect("POST start");
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::OK,
+            "start failed for {id}: {}",
+            resp.text().await.unwrap_or_default()
+        );
     }
     for id in [&id_a, &id_b] {
         poll_container_status(&client, &base, id, "running", Duration::from_secs(10)).await;
@@ -1072,7 +1471,11 @@ async fn test_bridge_network_container_to_container() {
 
     // ---- GET /containers/:id/network reports real, distinct IPs ----
     async fn get_network(client: &reqwest::Client, base: &str, id: &str) -> Value {
-        let resp = client.get(format!("{base}/containers/{id}/network")).send().await.expect("GET network");
+        let resp = client
+            .get(format!("{base}/containers/{id}/network"))
+            .send()
+            .await
+            .expect("GET network");
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         resp.json().await.expect("parse network JSON")
     }
@@ -1082,12 +1485,24 @@ async fn test_bridge_network_container_to_container() {
         assert_eq!(network["mode"], "bridge");
         assert_eq!(network["bridge_name"], "kbr-capstone");
     }
-    let ip_a: std::net::Ipv4Addr = network_a["ip"].as_str().expect("container A has a real ip").parse().expect("valid ipv4");
-    let ip_b: std::net::Ipv4Addr = network_b["ip"].as_str().expect("container B has a real ip").parse().expect("valid ipv4");
+    let ip_a: std::net::Ipv4Addr = network_a["ip"]
+        .as_str()
+        .expect("container A has a real ip")
+        .parse()
+        .expect("valid ipv4");
+    let ip_b: std::net::Ipv4Addr = network_b["ip"]
+        .as_str()
+        .expect("container B has a real ip")
+        .parse()
+        .expect("valid ipv4");
     assert_ne!(ip_a, ip_b, "the two containers must get distinct IPs");
 
     // ---- GET /system/topology lists both under the same bridge ----
-    let topology_resp = client.get(format!("{base}/system/topology")).send().await.expect("GET topology");
+    let topology_resp = client
+        .get(format!("{base}/system/topology"))
+        .send()
+        .await
+        .expect("GET topology");
     assert_eq!(topology_resp.status(), reqwest::StatusCode::OK);
     let topology: Value = topology_resp.json().await.expect("parse topology JSON");
     let bridge_entry = topology["bridges"]
@@ -1095,11 +1510,17 @@ async fn test_bridge_network_container_to_container() {
         .expect("bridges array")
         .iter()
         .find(|b| b["name"] == "kbr-capstone")
-        .unwrap_or_else(|| panic!("expected a kbr-capstone bridge entry in topology, got {topology}"));
-    let containers = bridge_entry["containers"].as_array().expect("containers array");
+        .unwrap_or_else(|| {
+            panic!("expected a kbr-capstone bridge entry in topology, got {topology}")
+        });
+    let containers = bridge_entry["containers"]
+        .as_array()
+        .expect("containers array");
     for (id, ip) in [(&id_a, ip_a), (&id_b, ip_b)] {
         assert!(
-            containers.iter().any(|c| c["id"] == id.as_str() && c["ip"] == ip.to_string()),
+            containers
+                .iter()
+                .any(|c| c["id"] == id.as_str() && c["ip"] == ip.to_string()),
             "expected container {id} (ip {ip}) in topology's bridge entry, got {containers:?}"
         );
     }
@@ -1112,13 +1533,20 @@ async fn test_bridge_network_container_to_container() {
     let listen_addr = std::net::SocketAddr::new(ip_b.into(), 9400);
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let server = t5_spawn_listener(pin_b.clone(), listen_addr, ready_tx);
-    ready_rx.recv_timeout(Duration::from_secs(5)).expect("listener in container B must become ready");
+    ready_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("listener in container B must become ready");
     let pin_a_for_client = pin_a.clone();
-    tokio::task::spawn_blocking(move || kestrel_net::netns::nsenter(&pin_a_for_client, move || t5_connect_and_ping(listen_addr)))
-        .await
-        .expect("client task panicked")
-        .expect("container A must be able to connect directly to container B's bridge-assigned IP");
-    let observed_peer = server.join().expect("server thread panicked").expect("server-side exchange must succeed");
+    tokio::task::spawn_blocking(move || {
+        kestrel_net::netns::nsenter(&pin_a_for_client, move || t5_connect_and_ping(listen_addr))
+    })
+    .await
+    .expect("client task panicked")
+    .expect("container A must be able to connect directly to container B's bridge-assigned IP");
+    let observed_peer = server
+        .join()
+        .expect("server thread panicked")
+        .expect("server-side exchange must succeed");
     assert_eq!(
         observed_peer.ip(),
         std::net::IpAddr::V4(ip_a),
@@ -1130,8 +1558,16 @@ async fn test_bridge_network_container_to_container() {
     // identical need, since a plain DELETE requires an already-Stopped
     // container), then the bridge/veth state ----
     for id in [&id_a, &id_b] {
-        let resp = client.delete(format!("{base}/containers/{id}?force=true")).send().await.expect("DELETE");
-        assert!(resp.status().is_success(), "delete failed for {id}: {}", resp.status());
+        let resp = client
+            .delete(format!("{base}/containers/{id}?force=true"))
+            .send()
+            .await
+            .expect("DELETE");
+        assert!(
+            resp.status().is_success(),
+            "delete failed for {id}: {}",
+            resp.status()
+        );
     }
 
     let (connection, handle, _) = rtnetlink::new_connection().expect("rtnetlink connection");

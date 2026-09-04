@@ -39,8 +39,14 @@ pub fn apply_rlimits(limits: Option<&[PosixRlimit]>) -> Result<()> {
     let Some(limits) = limits else { return Ok(()) };
     for rl in limits {
         let resource = translate_rlimit_type(rl.typ());
-        setrlimit(resource, rl.soft(), rl.hard())
-            .with_context(|| format!("setrlimit({:?}, soft={}, hard={})", rl.typ(), rl.soft(), rl.hard()))?;
+        setrlimit(resource, rl.soft(), rl.hard()).with_context(|| {
+            format!(
+                "setrlimit({:?}, soft={}, hard={})",
+                rl.typ(),
+                rl.soft(),
+                rl.hard()
+            )
+        })?;
     }
     Ok(())
 }
@@ -51,7 +57,10 @@ pub fn apply_rlimits(limits: Option<&[PosixRlimit]>) -> Result<()> {
 /// setting your own to anything from your current value or higher never
 /// needs privilege.
 pub fn set_oom_score_adj(score: i32) -> Result<()> {
-    anyhow::ensure!((-1000..=1000).contains(&score), "oom_score_adj {score} out of range [-1000, 1000]");
+    anyhow::ensure!(
+        (-1000..=1000).contains(&score),
+        "oom_score_adj {score} out of range [-1000, 1000]"
+    );
     std::fs::write("/proc/self/oom_score_adj", score.to_string())
         .with_context(|| format!("writing oom_score_adj={score}"))
 }
@@ -66,7 +75,13 @@ mod tests {
         // this test just confirms a couple of the mappings are the
         // expected, non-transposed ones (a translation bug that swapped
         // e.g. RLIMIT_CPU and RLIMIT_NPROC would still compile).
-        assert_eq!(translate_rlimit_type(PosixRlimitType::RlimitNofile), Resource::RLIMIT_NOFILE);
-        assert_eq!(translate_rlimit_type(PosixRlimitType::RlimitCpu), Resource::RLIMIT_CPU);
+        assert_eq!(
+            translate_rlimit_type(PosixRlimitType::RlimitNofile),
+            Resource::RLIMIT_NOFILE
+        );
+        assert_eq!(
+            translate_rlimit_type(PosixRlimitType::RlimitCpu),
+            Resource::RLIMIT_CPU
+        );
     }
 }

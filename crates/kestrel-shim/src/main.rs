@@ -1,3 +1,4 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
 // crates/kestrel-shim/src/main.rs
 //
 //! `kestrel-shim`'s entry point. See
@@ -103,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
             // precedent.
             let dup = |fd: &OwnedFd| -> std::process::Stdio {
                 let raw = nix::unistd::dup(fd.as_raw_fd()).expect("dup pty slave");
+                // SAFETY: `raw` is a fresh owned descriptor whose ownership
+                // is transferred to the returned `Stdio`.
                 unsafe { std::process::Stdio::from_raw_fd(raw) }
             };
             (dup(slave), dup(slave), dup(slave))
@@ -112,12 +115,15 @@ async fn main() -> anyhow::Result<()> {
             stderr_write,
             ..
         } => {
-            let devnull = std::fs::File::open("/dev/null").context("opening /dev/null for stdin")?;
+            let devnull =
+                std::fs::File::open("/dev/null").context("opening /dev/null for stdin")?;
             // SAFETY: see the identical `dup`/`from_raw_fd` safety note
             // in the `ContainerIo::Pty` arm above — same reasoning
             // applies verbatim to the pipe write ends here.
             let dup = |fd: &OwnedFd| -> std::process::Stdio {
                 let raw = nix::unistd::dup(fd.as_raw_fd()).expect("dup pipe write end");
+                // SAFETY: `raw` is a fresh owned descriptor whose ownership
+                // is transferred to the returned `Stdio`.
                 unsafe { std::process::Stdio::from_raw_fd(raw) }
             };
             (devnull.into(), dup(stdout_write), dup(stderr_write))

@@ -48,12 +48,22 @@ pub fn scan_copy_ups(upper_dir: &Path, lowers: &[LowerLayer]) -> Result<Vec<Copy
     Ok(events)
 }
 
-fn walk(root: &Path, dir: &Path, lowers: &[LowerLayer], events: &mut Vec<CopyUpEvent>) -> Result<()> {
+fn walk(
+    root: &Path,
+    dir: &Path,
+    lowers: &[LowerLayer],
+    events: &mut Vec<CopyUpEvent>,
+) -> Result<()> {
     for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
-        let entry = entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
+        let entry =
+            entry.with_context(|| format!("reading directory entry in {}", dir.display()))?;
         let path = entry.path();
-        let rel = path.strip_prefix(root).expect("path is under root by construction");
-        let file_type = entry.file_type().with_context(|| format!("reading file type of {}", path.display()))?;
+        let rel = path
+            .strip_prefix(root)
+            .expect("path is under root by construction");
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type of {}", path.display()))?;
 
         if file_type.is_dir() {
             if is_opaque_dir(&path)? {
@@ -87,7 +97,9 @@ fn walk(root: &Path, dir: &Path, lowers: &[LowerLayer], events: &mut Vec<CopyUpE
             continue;
         }
 
-        let metadata = entry.metadata().with_context(|| format!("reading metadata of {}", path.display()))?;
+        let metadata = entry
+            .metadata()
+            .with_context(|| format!("reading metadata of {}", path.display()))?;
         let kind = if is_metadata_only_copy_up(&path)? {
             CopyUpKind::MetadataOnly
         } else {
@@ -107,7 +119,11 @@ fn walk(root: &Path, dir: &Path, lowers: &[LowerLayer], events: &mut Vec<CopyUpE
 /// Top-most (last, since lowers is bottom-to-top) match wins, matching
 /// overlayfs's own shadowing order.
 fn find_in_lowers<'a>(rel: &Path, lowers: &'a [LowerLayer]) -> Option<&'a str> {
-    lowers.iter().rev().find(|l| l.diff_dir.join(rel).exists()).map(|l| l.chain_id)
+    lowers
+        .iter()
+        .rev()
+        .find(|l| l.diff_dir.join(rel).exists())
+        .map(|l| l.chain_id)
 }
 
 fn is_whiteout(path: &Path) -> Result<bool> {
@@ -154,9 +170,16 @@ mod tests {
         let upper = tempfile::tempdir().unwrap();
         let lower = tempfile::tempdir().unwrap();
         fs::write(lower.path().join("app.conf"), b"lower-version").unwrap();
-        fs::write(upper.path().join("app.conf"), b"upper-version-after-copy-up").unwrap();
+        fs::write(
+            upper.path().join("app.conf"),
+            b"upper-version-after-copy-up",
+        )
+        .unwrap();
 
-        let lowers = [LowerLayer { chain_id: "sha256:base", diff_dir: lower.path() }];
+        let lowers = [LowerLayer {
+            chain_id: "sha256:base",
+            diff_dir: lower.path(),
+        }];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
 
         assert_eq!(events.len(), 1);
@@ -172,9 +195,15 @@ mod tests {
         let lower = tempfile::tempdir().unwrap();
         fs::write(upper.path().join("brand-new.txt"), b"never existed below").unwrap();
 
-        let lowers = [LowerLayer { chain_id: "sha256:base", diff_dir: lower.path() }];
+        let lowers = [LowerLayer {
+            chain_id: "sha256:base",
+            diff_dir: lower.path(),
+        }];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
-        assert!(events.is_empty(), "a file with no lower counterpart is not a copy-up");
+        assert!(
+            events.is_empty(),
+            "a file with no lower counterpart is not a copy-up"
+        );
     }
 
     #[test]
@@ -187,12 +216,21 @@ mod tests {
         fs::write(upper.path().join("f.txt"), b"top").unwrap();
 
         let lowers = [
-            LowerLayer { chain_id: "sha256:base", diff_dir: base.path() },
-            LowerLayer { chain_id: "sha256:mid", diff_dir: mid.path() },
+            LowerLayer {
+                chain_id: "sha256:base",
+                diff_dir: base.path(),
+            },
+            LowerLayer {
+                chain_id: "sha256:mid",
+                diff_dir: mid.path(),
+            },
         ];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].from_layer, "sha256:mid", "closest (topmost) lower match should win, matching overlayfs shadowing order");
+        assert_eq!(
+            events[0].from_layer, "sha256:mid",
+            "closest (topmost) lower match should win, matching overlayfs shadowing order"
+        );
     }
 
     #[test]
@@ -204,7 +242,10 @@ mod tests {
         fs::create_dir_all(upper.path().join("nested/dir")).unwrap();
         fs::write(upper.path().join("nested/dir/deep.txt"), b"deep-modified").unwrap();
 
-        let lowers = [LowerLayer { chain_id: "sha256:base", diff_dir: lower.path() }];
+        let lowers = [LowerLayer {
+            chain_id: "sha256:base",
+            diff_dir: lower.path(),
+        }];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].path, Path::new("nested/dir/deep.txt"));
@@ -220,11 +261,18 @@ mod tests {
         // hide everything below in the lower stack — recursion into it, and
         // reporting its (now-invisible) contents, would be wrong.
         fs::create_dir_all(lower.path().join("opaquedir")).unwrap();
-        fs::write(lower.path().join("opaquedir/hidden-by-opaque.txt"), b"lower-only").unwrap();
+        fs::write(
+            lower.path().join("opaquedir/hidden-by-opaque.txt"),
+            b"lower-only",
+        )
+        .unwrap();
         fs::create_dir_all(upper.path().join("opaquedir")).unwrap();
         xattr::set(upper.path().join("opaquedir"), "user.overlay.opaque", b"y").unwrap();
 
-        let lowers = [LowerLayer { chain_id: "sha256:base", diff_dir: lower.path() }];
+        let lowers = [LowerLayer {
+            chain_id: "sha256:base",
+            diff_dir: lower.path(),
+        }];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
 
         assert_eq!(events.len(), 1);
@@ -240,9 +288,17 @@ mod tests {
 
         fs::write(lower.path().join("metacopy.txt"), b"lower-content").unwrap();
         fs::write(upper.path().join("metacopy.txt"), b"lower-content").unwrap();
-        xattr::set(upper.path().join("metacopy.txt"), "user.overlay.metacopy", b"y").unwrap();
+        xattr::set(
+            upper.path().join("metacopy.txt"),
+            "user.overlay.metacopy",
+            b"y",
+        )
+        .unwrap();
 
-        let lowers = [LowerLayer { chain_id: "sha256:base", diff_dir: lower.path() }];
+        let lowers = [LowerLayer {
+            chain_id: "sha256:base",
+            diff_dir: lower.path(),
+        }];
         let events = scan_copy_ups(upper.path(), &lowers).unwrap();
 
         assert_eq!(events.len(), 1);

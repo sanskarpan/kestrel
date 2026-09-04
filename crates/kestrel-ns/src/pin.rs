@@ -19,7 +19,12 @@ use crate::types::NsType;
 /// alive (and enterable via `setns` on `target`) even after `pid` exits.
 pub fn pin_namespace(pid: Pid, ns: NsType, target: &Path) -> Result<()> {
     // The bind-mount target must already exist as a regular file.
-    fs::File::create(target).with_context(|| format!("creating pin target {target:?}"))?;
+    fs::File::create(target).with_context(|| {
+        format!(
+            "syscall open(O_CREAT) target={target:?} for pin_namespace(pid={pid}, ns={ns:?}): failed while creating pin target; hint: check parent dir exists and is writable (mkdir -p {})",
+            target.parent().unwrap_or(Path::new("/")).display()
+        )
+    })?;
     let src = format!("/proc/{pid}/ns/{}", ns.proc_name());
     if let Err(e) = mount(
         Some(src.as_str()),
@@ -31,7 +36,11 @@ pub fn pin_namespace(pid: Pid, ns: NsType, target: &Path) -> Result<()> {
         // Don't leave a stray, unmounted file behind if the bind-mount
         // itself fails — best-effort, the original error is what matters.
         let _ = fs::remove_file(target);
-        return Err(e).with_context(|| format!("bind-mounting {src} onto {target:?}"));
+        return Err(e).with_context(|| {
+            format!(
+                "syscall mount(MS_BIND) src={src} -> target={target:?} (pin_namespace pid={pid} ns={ns:?}): bind-mount failed; hint: requires CAP_SYS_ADMIN in host mount ns, src must exist (/proc/<pid>/ns/<type>), target must be a file"
+            )
+        });
     }
     Ok(())
 }
@@ -39,8 +48,16 @@ pub fn pin_namespace(pid: Pid, ns: NsType, target: &Path) -> Result<()> {
 /// Reverses [`pin_namespace`]: lazily unmounts the pin and removes the
 /// backing file.
 pub fn unpin_namespace(target: &Path) -> Result<()> {
-    umount2(target, MntFlags::MNT_DETACH).with_context(|| format!("unmounting pin {target:?}"))?;
-    fs::remove_file(target).with_context(|| format!("removing pin file {target:?}"))?;
+    umount2(target, MntFlags::MNT_DETACH).with_context(|| {
+        format!(
+            "syscall umount2(MNT_DETACH) target={target:?}: failed to detach ns pin; hint: target may already be unmounted or not a mount point"
+        )
+    })?;
+    fs::remove_file(target).with_context(|| {
+        format!(
+            "syscall unlink target={target:?}: failed to remove pin file after umount; hint: check permissions and that file still exists"
+        )
+    })?;
     Ok(())
 }
 

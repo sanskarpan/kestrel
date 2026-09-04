@@ -157,7 +157,9 @@ pub struct NotifyEvent {
 /// [`run_notify_loop`] — can inspect `.errno()` and distinguish "this one
 /// request's target died mid-flight" (`SeccompErrno::ECANCELED`, see the
 /// module-level correction #7) from a genuinely fatal, fd-is-gone failure.
-fn receive_request(raw_fd: RawFd) -> std::result::Result<ScmpNotifReq, libseccomp::error::SeccompError> {
+fn receive_request(
+    raw_fd: RawFd,
+) -> std::result::Result<ScmpNotifReq, libseccomp::error::SeccompError> {
     ScmpNotifReq::receive(raw_fd)
 }
 
@@ -193,7 +195,8 @@ fn decode_and_respond(raw_fd: RawFd, req: ScmpNotifReq) -> Result<NotifyEvent> {
     // `error` must be negative (ScmpNotifResp::new_error debug-asserts
     // this); `libc::ENOSYS` is the positive errno constant, so negate it.
     let resp = ScmpNotifResp::new_error(req.id, -libc::ENOSYS, ScmpNotifRespFlags::empty());
-    resp.respond(raw_fd).context("responding to seccomp notif request")?;
+    resp.respond(raw_fd)
+        .context("responding to seccomp notif request")?;
 
     Ok(event)
 }
@@ -270,7 +273,10 @@ pub fn run_notify_loop(fd: BorrowedFd, mut on_event: impl FnMut(NotifyEvent)) ->
                 consecutive_cancellations = 0;
                 req
             }
-            Err(e) if e.errno() == Some(SeccompErrno::ECANCELED) && consecutive_cancellations < MAX_CONSECUTIVE_RECEIVE_CANCELLATIONS => {
+            Err(e)
+                if e.errno() == Some(SeccompErrno::ECANCELED)
+                    && consecutive_cancellations < MAX_CONSECUTIVE_RECEIVE_CANCELLATIONS =>
+            {
                 consecutive_cancellations += 1;
                 tracing::warn!(
                     error = %e,

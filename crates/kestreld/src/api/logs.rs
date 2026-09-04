@@ -140,7 +140,11 @@ pub async fn get_logs(
         return Err(AppError::not_found(format!("container {id} not found")));
     }
 
-    let log_path = state.data_dir.join("containers").join(&id).join("output.jsonl");
+    let log_path = state
+        .data_dir
+        .join("containers")
+        .join(&id)
+        .join("output.jsonl");
     let (historical, read_through) =
         read_filtered_lines(&log_path, query.tail, query.since.as_deref()).await?;
 
@@ -151,7 +155,9 @@ pub async fn get_logs(
         // number to the follow loop, rather than letting it re-`stat` the
         // file itself, is what makes the historical/live handoff race-free.
         let stream = build_follow_stream(log_path, historical, read_through);
-        Ok(Sse::new(stream).keep_alive(KeepAlive::default()).into_response())
+        Ok(Sse::new(stream)
+            .keep_alive(KeepAlive::default())
+            .into_response())
     } else {
         Ok(ndjson_response(historical))
     }
@@ -166,7 +172,12 @@ fn ndjson_response(lines: Vec<String>) -> Response {
     if !lines.is_empty() {
         body.push('\n');
     }
-    (StatusCode::OK, [(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response()
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/x-ndjson")],
+        body,
+    )
+        .into_response()
 }
 
 /// Drains every complete, `\n`-terminated line out of `buf`, leaving any
@@ -286,7 +297,9 @@ fn build_follow_stream(
     });
 
     futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|line| (Ok(Event::default().data(line)), rx))
+        rx.recv()
+            .await
+            .map(|line| (Ok(Event::default().data(line)), rx))
     })
 }
 
@@ -328,9 +341,13 @@ async fn follow_and_send(
         let mut file = tokio::fs::File::open(path)
             .await
             .context("reopening output.jsonl for follow")?;
-        file.seek(SeekFrom::Start(pos)).await.context("seeking output.jsonl")?;
+        file.seek(SeekFrom::Start(pos))
+            .await
+            .context("seeking output.jsonl")?;
         let mut buf = vec![0u8; (len - pos) as usize];
-        file.read_exact(&mut buf).await.context("reading appended output.jsonl bytes")?;
+        file.read_exact(&mut buf)
+            .await
+            .context("reading appended output.jsonl bytes")?;
         pos = len;
 
         partial.extend_from_slice(&buf);
@@ -394,7 +411,12 @@ mod tests {
     }
 
     async fn body_text(response: Response) -> String {
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
         String::from_utf8(bytes.to_vec()).expect("utf8 body")
     }
 
@@ -456,7 +478,9 @@ mod tests {
         let state = make_state(data_dir.path().to_path_buf(), id);
         let app = crate::build_router(state);
         let request = Request::builder()
-            .uri(format!("/containers/{id}/logs?since=2026-08-08T00:00:01.000000Z"))
+            .uri(format!(
+                "/containers/{id}/logs?since=2026-08-08T00:00:01.000000Z"
+            ))
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(request).await.expect("oneshot");
@@ -486,7 +510,11 @@ mod tests {
         let split_at = l1.len() / 2;
         let (first_half, second_half) = l1.split_at(split_at);
 
-        let path = data_dir.path().join("containers").join(id).join("output.jsonl");
+        let path = data_dir
+            .path()
+            .join("containers")
+            .join(id)
+            .join("output.jsonl");
         {
             use std::io::Write;
             // A real O_APPEND write of only HALF of `l1`'s bytes, and
@@ -496,7 +524,8 @@ mod tests {
                 .append(true)
                 .open(&path)
                 .expect("open output.jsonl for append");
-            f.write_all(first_half.as_bytes()).expect("append torn first half");
+            f.write_all(first_half.as_bytes())
+                .expect("append torn first half");
         }
 
         let state = make_state(data_dir.path().to_path_buf(), id);
@@ -511,7 +540,10 @@ mod tests {
         // Only the one complete line — the torn fragment must not appear
         // anywhere in the response, whole or partial.
         assert_eq!(body, format!("{l0}\n"));
-        assert!(!body.contains(first_half), "torn fragment leaked into response: {body:?}");
+        assert!(
+            !body.contains(first_half),
+            "torn fragment leaked into response: {body:?}"
+        );
 
         // The shim "finishes" the write: the rest of the line's bytes, then
         // its own terminating '\n' (mirroring `write_log_line`'s two
@@ -522,7 +554,8 @@ mod tests {
                 .append(true)
                 .open(&path)
                 .expect("open output.jsonl for append");
-            f.write_all(second_half.as_bytes()).expect("append torn second half");
+            f.write_all(second_half.as_bytes())
+                .expect("append torn second half");
             f.write_all(b"\n").expect("append trailing newline");
         }
 
@@ -561,18 +594,24 @@ mod tests {
         let split_at = l1.len() / 2;
         let (first_half, second_half) = l1.split_at(split_at);
 
-        let path = data_dir.path().join("containers").join(id).join("output.jsonl");
+        let path = data_dir
+            .path()
+            .join("containers")
+            .join(id)
+            .join("output.jsonl");
         {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
                 .append(true)
                 .open(&path)
                 .expect("open output.jsonl for append");
-            f.write_all(first_half.as_bytes()).expect("append torn first half");
+            f.write_all(first_half.as_bytes())
+                .expect("append torn first half");
         }
 
-        let (lines, read_through) =
-            read_filtered_lines(&path, None, None).await.expect("read_filtered_lines");
+        let (lines, read_through) = read_filtered_lines(&path, None, None)
+            .await
+            .expect("read_filtered_lines");
 
         // The torn fragment is excluded from the returned lines...
         assert_eq!(lines, vec![l0.clone()]);
@@ -589,7 +628,8 @@ mod tests {
                 .append(true)
                 .open(&path)
                 .expect("open output.jsonl for append");
-            f.write_all(second_half.as_bytes()).expect("append torn second half");
+            f.write_all(second_half.as_bytes())
+                .expect("append torn second half");
             f.write_all(b"\n").expect("append trailing newline");
         }
 
@@ -603,7 +643,10 @@ mod tests {
         let mut tail = full_bytes[read_through as usize..].to_vec();
         let recovered = drain_complete_lines(&mut tail);
         assert_eq!(recovered, vec![l1]);
-        assert!(tail.is_empty(), "leftover unconsumed bytes after recovering the line: {tail:?}");
+        assert!(
+            tail.is_empty(),
+            "leftover unconsumed bytes after recovering the line: {tail:?}"
+        );
     }
 
     #[tokio::test]
@@ -633,11 +676,15 @@ mod tests {
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                panic!("timed out waiting for SSE stream to contain {needle:?}; got so far: {acc:?}");
+                panic!(
+                    "timed out waiting for SSE stream to contain {needle:?}; got so far: {acc:?}"
+                );
             }
             let frame = tokio::time::timeout(remaining, body.frame())
                 .await
-                .unwrap_or_else(|_| panic!("timed out waiting for next SSE frame; got so far: {acc:?}"))
+                .unwrap_or_else(|_| {
+                    panic!("timed out waiting for next SSE frame; got so far: {acc:?}")
+                })
                 .expect("SSE body stream ended unexpectedly")
                 .expect("reading SSE frame");
             if let Some(data) = frame.data_ref() {
@@ -689,7 +736,11 @@ mod tests {
         // is not representative of how the real shim ever touches this
         // file.
         let l1 = line("2026-08-08T00:00:05.000000Z", "stdout", "two-live");
-        let path = data_dir.path().join("containers").join(id).join("output.jsonl");
+        let path = data_dir
+            .path()
+            .join("containers")
+            .join(id)
+            .join("output.jsonl");
         {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
@@ -700,7 +751,8 @@ mod tests {
             f.write_all(b"\n").expect("append trailing newline");
         }
 
-        let (acc2, _body) = collect_sse_until(body, "\"msg\":\"two-live\"", Duration::from_secs(5)).await;
+        let (acc2, _body) =
+            collect_sse_until(body, "\"msg\":\"two-live\"", Duration::from_secs(5)).await;
         assert!(acc2.contains("\"msg\":\"two-live\""));
     }
 }

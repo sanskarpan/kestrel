@@ -119,7 +119,10 @@ pub async fn create_netns(run_dir: &Path, id: &str) -> Result<PathBuf> {
 
     // Wait for the one-byte readiness signal before pinning — see
     // netns-helper.rs's own comment for why this handshake exists.
-    let mut stdout = child.stdout.take().context("helper's stdout was not piped")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("helper's stdout was not piped")?;
     let mut ready = [0u8; 1];
     stdout
         .read_exact(&mut ready)
@@ -139,8 +142,7 @@ pub async fn create_netns(run_dir: &Path, id: &str) -> Result<PathBuf> {
     }
     let _ = child.wait().await;
 
-    pin_result
-        .with_context(|| format!("pinning new netns for {id} at {}", target.display()))?;
+    pin_result.with_context(|| format!("pinning new netns for {id} at {}", target.display()))?;
     Ok(target)
 }
 

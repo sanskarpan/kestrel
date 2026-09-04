@@ -85,7 +85,10 @@ pub async fn attach_veth(
         .await
         .with_context(|| format!("creating veth pair {host_if}/{peer_if}"))?;
 
-    let result = attach_veth_inner(handle, &host_if, &peer_if, netns_pin, bridge_idx, ip, subnet, gateway).await;
+    let result = attach_veth_inner(
+        handle, &host_if, &peer_if, netns_pin, bridge_idx, ip, subnet, gateway,
+    )
+    .await;
 
     if let Err(ref e) = result {
         // Best-effort cleanup: destroy the host-side link (and therefore
@@ -152,7 +155,11 @@ async fn attach_veth_inner(
 
     handle
         .link()
-        .set(LinkUnspec::new_with_index(peer_idx).setns_by_fd(netns_file.as_raw_fd()).build())
+        .set(
+            LinkUnspec::new_with_index(peer_idx)
+                .setns_by_fd(netns_file.as_raw_fd())
+                .build(),
+        )
         .execute()
         .await
         .with_context(|| format!("moving {peer_if} into the container netns"))?;
@@ -162,7 +169,13 @@ async fn attach_veth_inner(
         .with_context(|| format!("host-side veth {host_if} not found"))?;
     handle
         .link()
-        .set(LinkUnspec::new_with_index(host_idx).controller(bridge_idx).mtu(1500).up().build())
+        .set(
+            LinkUnspec::new_with_index(host_idx)
+                .controller(bridge_idx)
+                .mtu(1500)
+                .up()
+                .build(),
+        )
         .execute()
         .await
         .with_context(|| format!("enslaving {host_if} to the bridge and bringing it up"))?;
@@ -222,8 +235,8 @@ async fn attach_veth_inner(
                 .context("building in-netns rtnetlink runtime")?;
 
             rt.block_on(async {
-                let (connection, inner_handle, _) =
-                    rtnetlink::new_connection().context("opening netlink socket inside container netns")?;
+                let (connection, inner_handle, _) = rtnetlink::new_connection()
+                    .context("opening netlink socket inside container netns")?;
                 tokio::spawn(connection);
 
                 // Re-resolve the peer's ifindex INSIDE the container
@@ -237,11 +250,18 @@ async fn attach_veth_inner(
                 // link (or fail with -ENODEV) in that case.
                 let in_netns_idx = find_link_index(&inner_handle, &peer_if)
                     .await?
-                    .with_context(|| format!("veth peer {peer_if} not found inside the container netns"))?;
+                    .with_context(|| {
+                        format!("veth peer {peer_if} not found inside the container netns")
+                    })?;
 
                 inner_handle
                     .link()
-                    .set(LinkUnspec::new_with_index(in_netns_idx).name("eth0".to_string()).address(mac.to_vec()).build())
+                    .set(
+                        LinkUnspec::new_with_index(in_netns_idx)
+                            .name("eth0".to_string())
+                            .address(mac.to_vec())
+                            .build(),
+                    )
                     .execute()
                     .await
                     .context("renaming peer to eth0 and setting its MAC")?;
@@ -289,7 +309,12 @@ async fn attach_veth_inner(
                     .destination_prefix(Ipv4Addr::UNSPECIFIED, 0)
                     .gateway(gateway)
                     .build();
-                inner_handle.route().add(default_route).execute().await.context("adding default route via bridge gateway")?;
+                inner_handle
+                    .route()
+                    .add(default_route)
+                    .execute()
+                    .await
+                    .context("adding default route via bridge gateway")?;
 
                 Ok::<(), anyhow::Error>(())
             })

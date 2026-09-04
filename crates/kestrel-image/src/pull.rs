@@ -54,12 +54,28 @@ use crate::store::ContentStore;
 
 #[derive(Debug, Clone)]
 pub enum PullProgress {
-    ManifestFetched { digest: Digest },
-    LayerStart { digest: Digest, index: usize, total: usize },
-    LayerDeduped { digest: Digest },
-    LayerDownloaded { digest: Digest, bytes: u64 },
-    LayerExtracted { digest: Digest, chain_id: String },
-    Complete { chain_ids: Vec<String> },
+    ManifestFetched {
+        digest: Digest,
+    },
+    LayerStart {
+        digest: Digest,
+        index: usize,
+        total: usize,
+    },
+    LayerDeduped {
+        digest: Digest,
+    },
+    LayerDownloaded {
+        digest: Digest,
+        bytes: u64,
+    },
+    LayerExtracted {
+        digest: Digest,
+        chain_id: String,
+    },
+    Complete {
+        chain_ids: Vec<String>,
+    },
 }
 
 /// Bound on how many layer blobs are downloaded+decompressed+hashed at
@@ -140,9 +156,13 @@ pub async fn pull_image_with_client(
     rootless: bool,
     mut on_progress: impl FnMut(PullProgress) + Send,
 ) -> Result<Vec<String>> {
-    let (manifest_bytes, manifest_digest, media_type) =
-        client.fetch_manifest_bytes(reference).await.context("fetching manifest")?;
-    on_progress(PullProgress::ManifestFetched { digest: manifest_digest });
+    let (manifest_bytes, manifest_digest, media_type) = client
+        .fetch_manifest_bytes(reference)
+        .await
+        .context("fetching manifest")?;
+    on_progress(PullProgress::ManifestFetched {
+        digest: manifest_digest,
+    });
 
     // Resolve a multi-platform index down to this platform's manifest if
     // necessary. `manifest_bytes`/`manifest` end up holding whichever bytes
@@ -150,34 +170,57 @@ pub async fn pull_image_with_client(
     // the index case, not the index itself — so the content store ends up
     // holding the manifest that corresponds to what was actually pulled.
     let (manifest_bytes, manifest): (Vec<u8>, ImageManifest) = if is_index_media_type(&media_type) {
-        let index: ImageIndex = serde_json::from_slice(&manifest_bytes).context("parsing manifest as an index")?;
-        let selected = select_platform(&index, "linux", docker_platform_arch(std::env::consts::ARCH), None)?;
-        let selected_digest: Digest =
-            selected.digest().to_string().parse().context("parsing selected manifest's digest")?;
+        let index: ImageIndex =
+            serde_json::from_slice(&manifest_bytes).context("parsing manifest as an index")?;
+        let selected = select_platform(
+            &index,
+            "linux",
+            docker_platform_arch(std::env::consts::ARCH),
+            None,
+        )?;
+        let selected_digest: Digest = selected
+            .digest()
+            .to_string()
+            .parse()
+            .context("parsing selected manifest's digest")?;
         let (bytes, resolved_digest, _selected_media_type) = client
-            .fetch_manifest_bytes(&ImageReference { digest: Some(selected_digest.clone()), ..reference.clone() })
+            .fetch_manifest_bytes(&ImageReference {
+                digest: Some(selected_digest.clone()),
+                ..reference.clone()
+            })
             .await
             .context("fetching selected platform manifest")?;
         anyhow::ensure!(
             resolved_digest == selected_digest,
             "selected platform manifest digest mismatch: index said {selected_digest}, fetched bytes hash to {resolved_digest}"
         );
-        let manifest: ImageManifest = serde_json::from_slice(&bytes).context("parsing selected platform manifest")?;
+        let manifest: ImageManifest =
+            serde_json::from_slice(&bytes).context("parsing selected platform manifest")?;
         (bytes, manifest)
     } else {
-        let manifest: ImageManifest = serde_json::from_slice(&manifest_bytes).context("parsing manifest")?;
+        let manifest: ImageManifest =
+            serde_json::from_slice(&manifest_bytes).context("parsing manifest")?;
         (manifest_bytes, manifest)
     };
-    store.write_blob(None, std::io::Cursor::new(&manifest_bytes)).context("writing manifest blob to content store")?;
+    store
+        .write_blob(None, std::io::Cursor::new(&manifest_bytes))
+        .context("writing manifest blob to content store")?;
 
     let layer_meta: Vec<LayerMeta> = manifest
         .layers()
         .iter()
         .enumerate()
         .map(|(index, d)| {
-            let digest: Digest =
-                d.digest().to_string().parse().with_context(|| format!("parsing layer {index} digest"))?;
-            Ok(LayerMeta { digest, media_type: d.media_type().to_string(), size: d.size() })
+            let digest: Digest = d
+                .digest()
+                .to_string()
+                .parse()
+                .with_context(|| format!("parsing layer {index} digest"))?;
+            Ok(LayerMeta {
+                digest,
+                media_type: d.media_type().to_string(),
+                size: d.size(),
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     let total = layer_meta.len();
@@ -186,7 +229,11 @@ pub async fn pull_image_with_client(
     // See this module's doc comment for why LayerStart is emitted up front
     // rather than exactly at each concurrent task's start.
     for (index, meta) in layer_meta.iter().enumerate() {
-        on_progress(PullProgress::LayerStart { digest: meta.digest.clone(), index, total });
+        on_progress(PullProgress::LayerStart {
+            digest: meta.digest.clone(),
+            index,
+            total,
+        });
     }
 
     let mut phase_a_results: Vec<Option<LayerDownload>> = (0..total).map(|_| None).collect();
@@ -200,7 +247,10 @@ pub async fn pull_image_with_client(
 
         while let Some(result) = downloads.next().await {
             let (index, dl) = result?;
-            on_progress(PullProgress::LayerDownloaded { digest: dl.digest.clone(), bytes: dl.size });
+            on_progress(PullProgress::LayerDownloaded {
+                digest: dl.digest.clone(),
+                bytes: dl.size,
+            });
             phase_a_results[index] = Some(dl);
         }
     }
@@ -209,15 +259,22 @@ pub async fn pull_image_with_client(
     let mut chain_ids: Vec<String> = Vec::with_capacity(total);
     let mut parent: Option<String> = None;
     for slot in phase_a_results.iter_mut() {
-        let dl = slot.take().expect("Phase A must populate every index before Phase B reads it");
+        let dl = slot
+            .take()
+            .expect("Phase A must populate every index before Phase B reads it");
         let cid = chain_id(parent.as_deref(), &dl.diff_id);
         let diff_dir = layer_store.diff_dir(&cid);
 
         if dir_has_entries(&diff_dir) {
-            on_progress(PullProgress::LayerDeduped { digest: dl.digest.clone() });
+            on_progress(PullProgress::LayerDeduped {
+                digest: dl.digest.clone(),
+            });
         } else {
             extract_layer(layer_store, &cid, &diff_dir, &dl.tar_path, rootless).await?;
-            on_progress(PullProgress::LayerExtracted { digest: dl.digest.clone(), chain_id: cid.clone() });
+            on_progress(PullProgress::LayerExtracted {
+                digest: dl.digest.clone(),
+                chain_id: cid.clone(),
+            });
         }
 
         // Idempotent bookkeeping (parent file + link-farm symlink) — cheap,
@@ -230,7 +287,9 @@ pub async fn pull_image_with_client(
         parent = Some(cid);
     }
 
-    on_progress(PullProgress::Complete { chain_ids: chain_ids.clone() });
+    on_progress(PullProgress::Complete {
+        chain_ids: chain_ids.clone(),
+    });
     Ok(chain_ids)
 }
 
@@ -267,8 +326,12 @@ async fn download_and_hash_one(
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let unique = STAGING_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let staging_path =
-            blob_path.with_file_name(format!(".staging-blob-{}-{}-{}", std::process::id(), unique, meta.digest.hex()));
+        let staging_path = blob_path.with_file_name(format!(
+            ".staging-blob-{}-{}-{}",
+            std::process::id(),
+            unique,
+            meta.digest.hex()
+        ));
 
         let download_result = client
             .download_blob_verified(reference, &meta.digest, &staging_path, None)
@@ -284,7 +347,11 @@ async fn download_and_hash_one(
         // been verified does the blob become visible at its final,
         // content-addressed path.
         fs::rename(&staging_path, &blob_path).with_context(|| {
-            format!("renaming downloaded blob into place: {} -> {}", staging_path.display(), blob_path.display())
+            format!(
+                "renaming downloaded blob into place: {} -> {}",
+                staging_path.display(),
+                blob_path.display()
+            )
         })?;
     }
 
@@ -295,7 +362,15 @@ async fn download_and_hash_one(
             .await
             .context("decompress-and-hash task panicked")??;
 
-    Ok((index, LayerDownload { digest: meta.digest.clone(), diff_id, tar_path, size: meta.size }))
+    Ok((
+        index,
+        LayerDownload {
+            digest: meta.digest.clone(),
+            diff_id,
+            tar_path,
+            size: meta.size,
+        },
+    ))
 }
 
 /// Extracts `tar_path` into a fresh staging directory sibling to `diff_dir`
@@ -329,7 +404,8 @@ async fn extract_layer(
     let tar_path_owned = tar_path.to_path_buf();
     let staging_for_blocking = staging.clone();
     let apply_result = spawn_blocking(move || -> Result<()> {
-        let tar_file = fs::File::open(&tar_path_owned).with_context(|| format!("opening {}", tar_path_owned.display()))?;
+        let tar_file = fs::File::open(&tar_path_owned)
+            .with_context(|| format!("opening {}", tar_path_owned.display()))?;
         apply_layer(tar_file, &staging_for_blocking, rootless).map(|_stats| ())
     })
     .await
@@ -346,7 +422,9 @@ async fn extract_layer(
 }
 
 fn dir_has_entries(dir: &std::path::Path) -> bool {
-    fs::read_dir(dir).map(|mut entries| entries.next().is_some()).unwrap_or(false)
+    fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false)
 }
 
 /// The compression scheme implied by a layer's declared media type, per an
@@ -374,12 +452,12 @@ fn classify_layer_media_type(media_type: &str) -> Result<LayerCompression> {
         | "application/vnd.oci.image.layer.nondistributable.v1.tar+gzip"
         | "application/vnd.docker.image.rootfs.diff.tar.gzip"
         | "application/vnd.docker.image.rootfs.foreign.diff.tar.gzip" => Ok(LayerCompression::Gzip),
-        "application/vnd.oci.image.layer.v1.tar+zstd" | "application/vnd.oci.image.layer.nondistributable.v1.tar+zstd" => {
+        "application/vnd.oci.image.layer.v1.tar+zstd"
+        | "application/vnd.oci.image.layer.nondistributable.v1.tar+zstd" => {
             Ok(LayerCompression::Zstd)
         }
-        "application/vnd.oci.image.layer.v1.tar" | "application/vnd.oci.image.layer.nondistributable.v1.tar" => {
-            Ok(LayerCompression::None)
-        }
+        "application/vnd.oci.image.layer.v1.tar"
+        | "application/vnd.oci.image.layer.nondistributable.v1.tar" => Ok(LayerCompression::None),
         other => anyhow::bail!("unsupported layer media type: {other}"),
     }
 }
@@ -393,27 +471,48 @@ fn decompress_and_hash(blob_path: &std::path::Path, media_type: &str) -> Result<
 
     let compression = classify_layer_media_type(media_type)?;
 
-    let compressed = std::fs::File::open(blob_path).with_context(|| format!("opening {}", blob_path.display()))?;
+    let compressed = std::fs::File::open(blob_path)
+        .with_context(|| format!("opening {}", blob_path.display()))?;
     let out_path = blob_path.with_extension("tar");
-    let out_file = std::fs::File::create(&out_path).with_context(|| format!("creating {}", out_path.display()))?;
+    let out_file = std::fs::File::create(&out_path)
+        .with_context(|| format!("creating {}", out_path.display()))?;
     let mut writer = std::io::BufWriter::new(out_file);
     let mut hasher = Sha256::new();
 
     match compression {
         LayerCompression::Gzip => {
             let mut decoder = flate2::read::GzDecoder::new(compressed);
-            std::io::copy(&mut decoder, &mut TeeWriter { inner: &mut writer, hasher: &mut hasher })
-                .context("decompressing gzip layer")?;
+            std::io::copy(
+                &mut decoder,
+                &mut TeeWriter {
+                    inner: &mut writer,
+                    hasher: &mut hasher,
+                },
+            )
+            .context("decompressing gzip layer")?;
         }
         LayerCompression::Zstd => {
-            let mut decoder = zstd::stream::Decoder::new(compressed).context("creating zstd decoder")?;
-            std::io::copy(&mut decoder, &mut TeeWriter { inner: &mut writer, hasher: &mut hasher })
-                .context("decompressing zstd layer")?;
+            let mut decoder =
+                zstd::stream::Decoder::new(compressed).context("creating zstd decoder")?;
+            std::io::copy(
+                &mut decoder,
+                &mut TeeWriter {
+                    inner: &mut writer,
+                    hasher: &mut hasher,
+                },
+            )
+            .context("decompressing zstd layer")?;
         }
         LayerCompression::None => {
             let mut r = compressed;
-            std::io::copy(&mut r, &mut TeeWriter { inner: &mut writer, hasher: &mut hasher })
-                .context("copying uncompressed layer")?;
+            std::io::copy(
+                &mut r,
+                &mut TeeWriter {
+                    inner: &mut writer,
+                    hasher: &mut hasher,
+                },
+            )
+            .context("copying uncompressed layer")?;
         }
     }
     writer.flush().context("flushing decompressed layer")?;

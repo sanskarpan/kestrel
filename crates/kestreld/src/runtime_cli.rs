@@ -30,7 +30,11 @@ use anyhow::Context;
 /// `crates/kestrel-runtime/src/cli.rs:18-26` — `args` is only ever the
 /// subcommand and ITS OWN flags, e.g. `["kill", id, signal]`, never the
 /// global flags).
-pub async fn run_kestrel_runtime(run_dir: &Path, data_dir: &Path, args: &[&str]) -> anyhow::Result<()> {
+pub async fn run_kestrel_runtime(
+    run_dir: &Path,
+    data_dir: &Path,
+    args: &[&str],
+) -> anyhow::Result<()> {
     let bin = crate::resolve_sibling_binary("kestrel-runtime")
         .context("locating kestrel-runtime binary for a lifecycle operation")?;
     let status = tokio::process::Command::new(&bin)
@@ -42,6 +46,9 @@ pub async fn run_kestrel_runtime(run_dir: &Path, data_dir: &Path, args: &[&str])
         .status()
         .await
         .with_context(|| format!("spawning {} {args:?}", bin.display()))?;
-    anyhow::ensure!(status.success(), "kestrel-runtime {args:?} failed: {status}");
+    anyhow::ensure!(
+        status.success(),
+        "kestrel-runtime {args:?} failed: {status}"
+    );
     Ok(())
 }

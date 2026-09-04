@@ -53,14 +53,13 @@ const FIFO_CONTAINER_PATH: &str = "/.kestrel/exec.fifo";
 pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Result<()> {
     let state_json_path = crate::state::state_json_path(run_dir, id);
     let fifo_host_path = run_dir.join(id).join("exec.fifo");
-    std::fs::create_dir_all(fifo_host_path.parent().unwrap()).with_context(|| {
-        format!(
-            "creating {}",
-            fifo_host_path.parent().unwrap().display()
-        )
-    })?;
-    nix::unistd::mkfifo(&fifo_host_path, nix::sys::stat::Mode::from_bits_truncate(0o600))
-        .context("mkfifo")?;
+    std::fs::create_dir_all(fifo_host_path.parent().unwrap())
+        .with_context(|| format!("creating {}", fifo_host_path.parent().unwrap().display()))?;
+    nix::unistd::mkfifo(
+        &fifo_host_path,
+        nix::sys::stat::Mode::from_bits_truncate(0o600),
+    )
+    .context("mkfifo")?;
 
     // Write the Creating-status state.json BEFORE run_stages, so a crash
     // partway through create still leaves diagnosable evidence.
@@ -91,8 +90,12 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     // raw fd is what stage1 passes to `clone3(CLONE_INTO_CGROUP)`
     // internally — dropping it early would close the fd out from under
     // that call.
-    let cgroup_dir = std::fs::File::open(&cgroup.path)
-        .with_context(|| format!("opening cgroup dir {} for CLONE_INTO_CGROUP", cgroup.path.display()))?;
+    let cgroup_dir = std::fs::File::open(&cgroup.path).with_context(|| {
+        format!(
+            "opening cgroup dir {} for CLONE_INTO_CGROUP",
+            cgroup.path.display()
+        )
+    })?;
 
     // Dedicated Phase-8 socketpair — SOCK_STREAM, not SOCK_DGRAM/SEQPACKET.
     // `kestrel_oci::bootstrap`'s own module doc comment (and its
@@ -136,7 +139,14 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     )
     .context("setting FD_CLOEXEC on host_end")?;
 
-    let bootstrap = build_bootstrap(id, bundle, mount_plan, &fifo_host_path, &state_json_path, run_dir)?;
+    let bootstrap = build_bootstrap(
+        id,
+        bundle,
+        mount_plan,
+        &fifo_host_path,
+        &state_json_path,
+        run_dir,
+    )?;
     let init_end_raw = init_end.as_raw_fd();
     let host_end_raw = host_end.as_raw_fd();
 
@@ -257,7 +267,10 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
 /// comment in `kestrel_cgroup::resources`) — this function does not need to
 /// (and does not) duplicate that presence-checking itself. So a container
 /// that requests no resource limits behaves identically to before this fix.
-fn apply_resource_limits(cgroup: &kestrel_cgroup::manager::CgroupManager, bundle: &Bundle) -> Result<()> {
+fn apply_resource_limits(
+    cgroup: &kestrel_cgroup::manager::CgroupManager,
+    bundle: &Bundle,
+) -> Result<()> {
     let Some(resources) = bundle
         .spec
         .spec
@@ -391,7 +404,8 @@ fn stage_bundle_rootfs_as_synthetic_layer(
 /// device node would need `mknod`, not `fs::copy`.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     for entry in std::fs::read_dir(src).with_context(|| format!("reading {}", src.display()))? {
-        let entry = entry.with_context(|| format!("reading directory entry in {}", src.display()))?;
+        let entry =
+            entry.with_context(|| format!("reading directory entry in {}", src.display()))?;
         let file_type = entry
             .file_type()
             .with_context(|| format!("reading file type of {}", entry.path().display()))?;
@@ -412,8 +426,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
             std::fs::set_permissions(&dst_path, meta.permissions())
                 .with_context(|| format!("setting permissions on {}", dst_path.display()))?;
         } else if file_type.is_file() {
-            std::fs::copy(&src_path, &dst_path)
-                .with_context(|| format!("copying {} to {}", src_path.display(), dst_path.display()))?;
+            std::fs::copy(&src_path, &dst_path).with_context(|| {
+                format!("copying {} to {}", src_path.display(), dst_path.display())
+            })?;
         }
         // else: device/fifo/socket — skipped, see doc comment above.
     }
@@ -526,7 +541,12 @@ pub(crate) fn build_namespace_plan(bundle: &Bundle) -> Result<NamespacePlan> {
 /// this environment. `exec_cmd.rs` already handles this gracefully — a
 /// namespace that was planned but never successfully pinned (for any
 /// reason) is simply absent from `pins`, and `join_namespaces` skips it.
-fn pin_namespaces(run_dir: &Path, id: &str, plan: &NamespacePlan, init_pid: nix::unistd::Pid) -> Result<()> {
+fn pin_namespaces(
+    run_dir: &Path,
+    id: &str,
+    plan: &NamespacePlan,
+    init_pid: nix::unistd::Pid,
+) -> Result<()> {
     if plan.create.is_empty() {
         return Ok(());
     }
@@ -594,7 +614,10 @@ fn pin_namespaces(run_dir: &Path, id: &str, plan: &NamespacePlan, init_pid: nix:
 /// real underlying `nix::errno::Errno` rather than string-matching the
 /// formatted message.
 fn is_known_mount_pin_einval(e: &anyhow::Error) -> bool {
-    matches!(e.downcast_ref::<nix::errno::Errno>(), Some(nix::errno::Errno::EINVAL))
+    matches!(
+        e.downcast_ref::<nix::errno::Errno>(),
+        Some(nix::errno::Errno::EINVAL)
+    )
 }
 
 /// All 8 `LinuxNamespaceType` variants map onto `NsType`, one name
@@ -722,8 +745,8 @@ fn uses_seccomp_notify(profile: &LinuxSeccomp) -> bool {
 /// byte arrived" apart from "short read due to a real I/O error" on its
 /// own).
 fn recv_go_ahead(fd: RawFd) -> Result<bool> {
-    // SAFETY-equivalent note (matching `kestrel_oci::bootstrap`'s own
-    // established pattern): this fd is "borrowed, not owned" — it must
+    // SAFETY: matching `kestrel_oci::bootstrap`'s established pattern, this
+    // fd is "borrowed, not owned" — it must
     // stay open for the later `dup2`/`execv` in `child_action`, so the
     // `File` wrapper's own `Drop` (a real `close(2)`) must never run.
     // `mem::forget` is how that's expressed without a `BorrowedFd`.
@@ -742,6 +765,7 @@ fn recv_go_ahead(fd: RawFd) -> Result<bool> {
 
 fn send_go_ahead_and_bootstrap(fd: RawFd, bootstrap: &Bootstrap) -> Result<()> {
     use std::io::Write;
+    // SAFETY: fd is a valid open file descriptor borrowed for this write; File is forgotten so fd stays open for bootstrap send.
     let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
     let result = file.write_all(&[0x01]).context("writing go-ahead byte");
     std::mem::forget(file);
@@ -798,7 +822,12 @@ mod tests {
     fn minimal_spec() -> kestrel_oci::runtime::Spec {
         SpecBuilder::default()
             .root(RootBuilder::default().path("rootfs").build().unwrap())
-            .process(ProcessBuilder::default().args(vec!["sh".into()]).build().unwrap())
+            .process(
+                ProcessBuilder::default()
+                    .args(vec!["sh".into()])
+                    .build()
+                    .unwrap(),
+            )
             .build()
             .unwrap()
     }
@@ -951,7 +980,10 @@ mod tests {
                 .build()
                 .unwrap(),
         ];
-        let linux = LinuxBuilder::default().namespaces(namespaces).build().unwrap();
+        let linux = LinuxBuilder::default()
+            .namespaces(namespaces)
+            .build()
+            .unwrap();
         spec.set_linux(Some(linux));
 
         let bundle = bundle_with_spec(spec);
@@ -1012,7 +1044,9 @@ mod tests {
         let data_dir = tempfile::tempdir().unwrap();
 
         let err = stage_bundle_rootfs_as_synthetic_layer("id", &bundle, data_dir.path())
-            .expect_err("an empty annotation value must be rejected, not silently treated as zero layers");
+            .expect_err(
+                "an empty annotation value must be rejected, not silently treated as zero layers",
+            );
         assert!(
             format!("{err:#}").contains("annotation is present but empty"),
             "unexpected error message: {err:#}"
@@ -1115,8 +1149,14 @@ mod tests {
             "a pre-existing directory at the Net pin target must still fail, not be tolerated",
         );
         let msg = format!("{err:#}");
-        assert!(msg.contains("Net"), "expected the failure to be about Net, got: {msg}");
-        assert!(msg.contains("rolled back"), "expected the rollback message, got: {msg}");
+        assert!(
+            msg.contains("Net"),
+            "expected the failure to be about Net, got: {msg}"
+        );
+        assert!(
+            msg.contains("rolled back"),
+            "expected the rollback message, got: {msg}"
+        );
         assert!(
             msg.contains("1 previously-pinned"),
             "expected exactly Pid's pin to have been rolled back, got: {msg}"
@@ -1141,10 +1181,19 @@ mod tests {
         // only by the root-gated integration test.
         let run_dir = tempfile::tempdir().unwrap();
         let plan = NamespacePlan::default();
-        pin_namespaces(run_dir.path(), "empty-plan-container", &plan, nix::unistd::getpid())
-            .expect("empty plan must not error");
+        pin_namespaces(
+            run_dir.path(),
+            "empty-plan-container",
+            &plan,
+            nix::unistd::getpid(),
+        )
+        .expect("empty plan must not error");
         assert!(
-            !run_dir.path().join("empty-plan-container").join("ns").exists(),
+            !run_dir
+                .path()
+                .join("empty-plan-container")
+                .join("ns")
+                .exists(),
             "an empty namespace plan should not even create the ns/ directory"
         );
     }

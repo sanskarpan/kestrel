@@ -41,8 +41,13 @@ impl CgroupManager {
     /// `apply_io`/`apply_hugetlb` methods in `resources.rs`, called
     /// separately by whichever ones a given `LinuxResources` needs.
     pub fn create(&self) -> Result<()> {
-        fs::create_dir_all(&self.path)
-            .with_context(|| format!("creating cgroup dir {}", self.path.display()))?;
+        fs::create_dir_all(&self.path).with_context(|| {
+            format!(
+                "syscall mkdir(path={}, mode=0755) for cgroup: failed; hint: needs write to cgroupfs at {} (check cgroup2 mounted and permissions; systemd may manage subtree_control)",
+                self.path.display(),
+                self.root.display()
+            )
+        })?;
         self.enable_controllers_in_parents()
     }
 
@@ -60,22 +65,37 @@ impl CgroupManager {
                     continue;
                 }
                 Err(e) => {
-                    return Err(e)
-                        .with_context(|| format!("removing cgroup dir {}", self.path.display()));
+                    return Err(e).with_context(|| {
+                        format!(
+                            "syscall rmdir(path={}) for cgroup: failed (EBUSY retried 1s); hint: cgroup still has live pids — kill processes via cgroup.kill or cgroup.procs",
+                            self.path.display()
+                        )
+                    });
                 }
             }
         }
     }
 
     pub fn read_available_controllers(&self, at: &std::path::Path) -> Result<Vec<String>> {
-        let contents = fs::read_to_string(at.join("cgroup.controllers"))
-            .with_context(|| format!("reading cgroup.controllers at {}", at.display()))?;
+        let contents = fs::read_to_string(at.join("cgroup.controllers")).with_context(|| {
+            format!(
+                "syscall read(path={}/cgroup.controllers): failed; hint: ensure cgroup v2 is mounted at {} (statfs CGROUP2_SUPER_MAGIC), not v1/hybrid",
+                at.display(),
+                at.display()
+            )
+        })?;
         Ok(parse_controllers(&contents))
     }
 
     pub(crate) fn write(&self, file: &str, value: &str) -> Result<()> {
-        fs::write(self.path.join(file), value)
-            .with_context(|| format!("writing {value:?} to {}", self.path.join(file).display()))
+        fs::write(self.path.join(file), value).with_context(|| {
+            format!(
+                "syscall write(fd={}/{}, data={:?}): failed; hint: controller may not be enabled in parent's cgroup.subtree_control, or value syntax invalid (e.g. cpu.max '<quota> <period>')",
+                self.path.display(),
+                file,
+                value
+            )
+        })
     }
 }
 
@@ -122,9 +142,13 @@ impl CgroupManager {
     /// Adds `pid` to this cgroup. Must be called on a LEAF cgroup (Rule 2)
     /// — writing to a cgroup with subtree_control set fails.
     pub fn add_process(&self, pid: nix::unistd::Pid) -> Result<()> {
-        self.write("cgroup.procs", &pid.as_raw().to_string()).context(
-            "failed to add process — if this cgroup has subtree_control set, Rule 2 (no internal processes) forbids adding processes to it",
-        )
+        self.write("cgroup.procs", &pid.as_raw().to_string()).with_context(|| {
+            format!(
+                "syscall write(fd={}/cgroup.procs, data=\"{}\"): failed; hint: cgroup must be a leaf (no subtree_control set) per no-internal-process rule; also check pid exists and not already in another cgroup with conflicting controllers",
+                self.path.display(),
+                pid.as_raw()
+            )
+        })
     }
 }
 

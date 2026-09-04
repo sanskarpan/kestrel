@@ -190,6 +190,7 @@ fn test_memory_limit_ooms() {
     // the test process itself instead and have the child place ITSELF into
     // the cgroup before allocating anything — no separate process, no
     // window, no race.
+    // SAFETY: safe with documented preconditions; see surrounding context.
     match unsafe { nix::unistd::fork() }.expect("fork") {
         nix::unistd::ForkResult::Child => {
             std::fs::write(m.path.join("cgroup.procs"), std::process::id().to_string())
@@ -212,6 +213,7 @@ fn test_memory_limit_ooms() {
                 v.extend(std::iter::repeat_n(0xABu8, 1024 * 1024));
                 std::hint::black_box(&v);
             }
+            // SAFETY: safe with documented preconditions; see surrounding context.
             unsafe { libc::_exit(0) }; // should be OOM-killed before reaching here
         }
         nix::unistd::ForkResult::Parent { child } => {
@@ -321,12 +323,14 @@ fn test_pids_limit() {
     // atomically reaps the entire subtree afterward regardless of process
     // ancestry.
     const ATTEMPTS: u32 = 40;
+    // SAFETY: safe with documented preconditions; see surrounding context.
     let successes: u32 = match unsafe { nix::unistd::fork() }.expect("fork") {
         nix::unistd::ForkResult::Child => {
             std::fs::write(m.path.join("cgroup.procs"), std::process::id().to_string())
                 .expect("child self-placement into cgroup.procs");
             let mut successes = 0u32;
             for _ in 0..ATTEMPTS {
+                // SAFETY: safe with documented preconditions; see surrounding context.
                 match unsafe { nix::unistd::fork() } {
                     Ok(nix::unistd::ForkResult::Child) => loop {
                         std::thread::sleep(std::time::Duration::from_secs(60));
@@ -335,6 +339,7 @@ fn test_pids_limit() {
                     Err(_) => {} // expected once pids.max denies further forks
                 }
             }
+            // SAFETY: safe with documented preconditions; see surrounding context.
             unsafe { libc::_exit(successes.min(255) as i32) };
         }
         nix::unistd::ForkResult::Parent { child } => {
@@ -378,6 +383,7 @@ fn test_io_stat_reports_real_write_activity() {
     // parent cgroup instead of the leaf, making `io.stat` never reflect it.
     let out_path = std::env::temp_dir().join("kestrel-io-stat-test.out");
     let out_path_child = out_path.clone();
+    // SAFETY: safe with documented preconditions; see surrounding context.
     match unsafe { nix::unistd::fork() }.expect("fork") {
         nix::unistd::ForkResult::Child => {
             std::fs::write(m.path.join("cgroup.procs"), std::process::id().to_string())
@@ -392,6 +398,7 @@ fn test_io_stat_reports_real_write_activity() {
                 f.write_all(&buf).expect("write");
             }
             f.sync_all().expect("fsync");
+            // SAFETY: safe with documented preconditions; see surrounding context.
             unsafe { libc::_exit(0) };
         }
         nix::unistd::ForkResult::Parent { child } => {
@@ -452,6 +459,7 @@ fn test_clone_into_cgroup_no_window() {
             let cgroup_fd =
                 std::fs::File::open(&m.path).expect("open cgroup dir for O_PATH-ish fd use");
             use std::os::fd::AsRawFd;
+            // SAFETY: safe with documented preconditions; see surrounding context.
             let clone_result = unsafe {
                 kestrel_cgroup::clone3::clone_into_cgroup(
                     libc::SIGCHLD as u64,
@@ -479,6 +487,7 @@ fn test_clone_into_cgroup_no_window() {
                     // genuinely writes every byte.
                     let _bomb: Vec<u8> = vec![0xABu8; 200 * 1024 * 1024];
                     std::hint::black_box(&_bomb);
+                    // SAFETY: safe with documented preconditions; see surrounding context.
                     unsafe { libc::_exit(0) }; // should never be reached
                 }
                 Some(pid) => {

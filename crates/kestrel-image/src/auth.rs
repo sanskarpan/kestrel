@@ -15,15 +15,23 @@ pub struct BearerChallenge {
 /// Docker Hub, actually uses); `Basic` challenges are treated as "no
 /// bearer challenge found" and the caller falls back accordingly.
 pub fn parse_www_authenticate(headers: &HeaderMap) -> Result<Option<BearerChallenge>> {
-    let Some(value) = headers.get(reqwest::header::WWW_AUTHENTICATE) else { return Ok(None) };
-    let value = value.to_str().context("WWW-Authenticate header is not valid UTF-8")?;
-    let Some(rest) = value.strip_prefix("Bearer ") else { return Ok(None) };
+    let Some(value) = headers.get(reqwest::header::WWW_AUTHENTICATE) else {
+        return Ok(None);
+    };
+    let value = value
+        .to_str()
+        .context("WWW-Authenticate header is not valid UTF-8")?;
+    let Some(rest) = value.strip_prefix("Bearer ") else {
+        return Ok(None);
+    };
 
     let mut realm = None;
     let mut service = None;
     let mut scope = None;
     for pair in split_challenge_params(rest) {
-        let Some((key, val)) = pair.split_once('=') else { continue };
+        let Some((key, val)) = pair.split_once('=') else {
+            continue;
+        };
         let val = val.trim_matches('"').to_string();
         match key {
             "realm" => realm = Some(val),
@@ -34,7 +42,11 @@ pub fn parse_www_authenticate(headers: &HeaderMap) -> Result<Option<BearerChalle
     }
 
     let realm = realm.context("Bearer challenge missing realm")?;
-    Ok(Some(BearerChallenge { realm, service, scope }))
+    Ok(Some(BearerChallenge {
+        realm,
+        service,
+        scope,
+    }))
 }
 
 /// Splits `key="value with, commas",key2="value2"` on the commas that
@@ -72,8 +84,13 @@ pub async fn fetch_token(client: &reqwest::Client, challenge: &BearerChallenge) 
         req = req.query(&[("scope", scope)]);
     }
     let resp = req.send().await.context("requesting auth token")?;
-    let resp = resp.error_for_status().context("token endpoint returned an error status")?;
-    let body: serde_json::Value = resp.json().await.context("parsing token response as JSON")?;
+    let resp = resp
+        .error_for_status()
+        .context("token endpoint returned an error status")?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .context("parsing token response as JSON")?;
     // Registries use either "token" or "access_token" for the same thing.
     body.get("token")
         .or_else(|| body.get("access_token"))
@@ -94,7 +111,9 @@ mod tests {
 
     #[test]
     fn test_parse_full_bearer_challenge() {
-        let h = headers_with(r#"Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/alpine:pull""#);
+        let h = headers_with(
+            r#"Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/alpine:pull""#,
+        );
         let c = parse_www_authenticate(&h).unwrap().unwrap();
         assert_eq!(c.realm, "https://auth.docker.io/token");
         assert_eq!(c.service.as_deref(), Some("registry.docker.io"));

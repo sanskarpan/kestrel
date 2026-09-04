@@ -17,7 +17,9 @@ impl Digest {
     pub fn of_bytes(data: &[u8]) -> Self {
         let mut hasher = Sha256::new();
         hasher.update(data);
-        Digest { hex: format!("{:x}", hasher.finalize()) }
+        Digest {
+            hex: format!("{:x}", hasher.finalize()),
+        }
     }
 
     pub fn hex(&self) -> &str {
@@ -40,15 +42,26 @@ impl fmt::Display for Digest {
 impl FromStr for Digest {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self> {
-        let hex = s.strip_prefix("sha256:").context("digest must start with \"sha256:\"")?;
+        let hex = s
+            .strip_prefix("sha256:")
+            .context("digest must start with \"sha256:\"")?;
         bail_unless_valid_hex(hex)?;
-        Ok(Digest { hex: hex.to_lowercase() })
+        Ok(Digest {
+            hex: hex.to_lowercase(),
+        })
     }
 }
 
 fn bail_unless_valid_hex(hex: &str) -> Result<()> {
-    anyhow::ensure!(hex.len() == 64, "digest hex must be exactly 64 characters, got {}", hex.len());
-    anyhow::ensure!(hex.chars().all(|c| c.is_ascii_hexdigit()), "digest hex must be all hex digits");
+    anyhow::ensure!(
+        hex.len() == 64,
+        "digest hex must be exactly 64 characters, got {}",
+        hex.len()
+    );
+    anyhow::ensure!(
+        hex.chars().all(|c| c.is_ascii_hexdigit()),
+        "digest hex must be all hex digits"
+    );
     Ok(())
 }
 
@@ -68,13 +81,18 @@ pub struct VerifyingReader<R> {
 
 impl<R: std::io::Read> VerifyingReader<R> {
     pub fn new(inner: R) -> Self {
-        VerifyingReader { inner, hasher: Sha256::new() }
+        VerifyingReader {
+            inner,
+            hasher: Sha256::new(),
+        }
     }
 
     /// Consumes the reader, returning the digest of everything read so far.
     /// Call only after fully reading `inner` (e.g. via `io::copy`).
     pub fn finish(self) -> Digest {
-        Digest { hex: format!("{:x}", self.hasher.finalize()) }
+        Digest {
+            hex: format!("{:x}", self.hasher.finalize()),
+        }
     }
 }
 
@@ -96,7 +114,10 @@ mod tests {
         // Lima VM before trusting it, per this project's "verify, don't
         // assume" discipline.
         let d = Digest::of_bytes(b"");
-        assert_eq!(d.to_string(), "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            d.to_string(),
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]

@@ -102,15 +102,33 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/containers/{id}",
             get(api::containers::inspect_container).delete(api::containers::delete_container),
         )
-        .route("/containers/{id}/start", post(api::containers::start_container))
-        .route("/containers/{id}/stop", post(api::containers::stop_container))
-        .route("/containers/{id}/kill", post(api::containers::kill_container))
-        .route("/containers/{id}/pause", post(api::containers::pause_container))
-        .route("/containers/{id}/unpause", post(api::containers::unpause_container))
+        .route(
+            "/containers/{id}/start",
+            post(api::containers::start_container),
+        )
+        .route(
+            "/containers/{id}/stop",
+            post(api::containers::stop_container),
+        )
+        .route(
+            "/containers/{id}/kill",
+            post(api::containers::kill_container),
+        )
+        .route(
+            "/containers/{id}/pause",
+            post(api::containers::pause_container),
+        )
+        .route(
+            "/containers/{id}/unpause",
+            post(api::containers::unpause_container),
+        )
         // Task 10: exec is a WS upgrade (GET, not POST — see
         // `api::containers::exec_container`'s own doc comment for why); top
         // is a plain GET.
-        .route("/containers/{id}/exec", get(api::containers::exec_container))
+        .route(
+            "/containers/{id}/exec",
+            get(api::containers::exec_container),
+        )
         .route("/containers/{id}/top", get(api::containers::top_container))
         // Task 11: tail (+ optional `?since=`/`?tail=`) or, with
         // `?follow=true`, an SSE live stream of `output.jsonl`.
@@ -119,28 +137,52 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         // inherently an HTTP GET" reasoning as Task 10's exec endpoint;
         // resize is a plain POST that sends one RESIZE frame and
         // disconnects (`api::attach`'s own doc comment).
-        .route("/containers/{id}/attach", get(api::attach::attach_container))
-        .route("/containers/{id}/resize", post(api::attach::resize_container))
+        .route(
+            "/containers/{id}/attach",
+            get(api::attach::attach_container),
+        )
+        .route(
+            "/containers/{id}/resize",
+            post(api::attach::resize_container),
+        )
         // Task 14: the real event bus's SSE endpoint.
         .route("/events", get(events::get_events))
         // Task 17: the persisted bridge-mode `NetworkInfo` for one
         // container, and the daemon-wide bridge/subnet/container-IP
         // aggregation across all of them.
-        .route("/containers/{id}/network", get(api::network::get_container_network))
+        .route(
+            "/containers/{id}/network",
+            get(api::network::get_container_network),
+        )
         .route("/system/topology", get(api::network::get_topology))
         // Task 18: introspection endpoints, part A (namespaces, cgroup,
         // pressure, mounts, capabilities).
-        .route("/containers/{id}/namespaces", get(api::introspect::get_namespaces))
+        .route(
+            "/containers/{id}/namespaces",
+            get(api::introspect::get_namespaces),
+        )
         .route("/containers/{id}/cgroup", get(api::introspect::get_cgroup))
-        .route("/containers/{id}/pressure", get(api::introspect::get_pressure))
+        .route(
+            "/containers/{id}/pressure",
+            get(api::introspect::get_pressure),
+        )
         .route("/containers/{id}/mounts", get(api::introspect::get_mounts))
         .route("/containers/{id}/caps", get(api::introspect::get_caps))
         // Task 19: introspection endpoints, part B (layers, copyups,
         // seccomp, system-wide namespace graph).
         .route("/containers/{id}/layers", get(api::introspect::get_layers))
-        .route("/containers/{id}/copyups", get(api::introspect::get_copyups))
-        .route("/containers/{id}/seccomp", get(api::introspect::get_seccomp))
-        .route("/system/namespaces", get(api::introspect::get_system_namespaces))
+        .route(
+            "/containers/{id}/copyups",
+            get(api::introspect::get_copyups),
+        )
+        .route(
+            "/containers/{id}/seccomp",
+            get(api::introspect::get_seccomp),
+        )
+        .route(
+            "/system/namespaces",
+            get(api::introspect::get_system_namespaces),
+        )
         // Task 20: image endpoints. `/images/dedup` is registered as its
         // own literal route alongside the dynamic `/images/{reference}`
         // one — axum/matchit's documented static-over-dynamic routing
@@ -155,7 +197,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             "/images/{reference}",
             get(api::images::get_image).delete(api::images::delete_image),
         )
-        .route("/images/{reference}/layers", get(api::images::get_image_layers))
+        .route(
+            "/images/{reference}/layers",
+            get(api::images::get_image_layers),
+        )
         .with_state(state)
 }
 
@@ -181,7 +226,9 @@ pub(crate) fn resolve_sibling_binary(name: &str) -> Result<PathBuf> {
     }
 
     let current_exe = std::env::current_exe().context("resolving current_exe")?;
-    let exe_dir = current_exe.parent().context("current_exe has no parent dir")?;
+    let exe_dir = current_exe
+        .parent()
+        .context("current_exe has no parent dir")?;
 
     let sibling = exe_dir.join(name);
     if sibling.is_file() {
@@ -206,36 +253,92 @@ pub(crate) fn resolve_sibling_binary(name: &str) -> Result<PathBuf> {
 /// Matches `kestrel-runtime`'s own `tracing_subscriber::fmt()` init
 /// convention (see `crates/kestrel-runtime/src/main.rs`), so logs from both
 /// binaries are shaped the same way and both honor `RUST_LOG`.
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+/// `--verbose` forces `debug` level when `RUST_LOG` is not set, and names
+/// each daemon setup phase with timing (config load, recovery, leak sweep,
+/// listener bind, etc).
+fn init_tracing(verbose: bool) {
+    let filter = if verbose {
+        if std::env::var("RUST_LOG").is_ok() {
+            tracing_subscriber::EnvFilter::from_default_env()
+        } else {
+            tracing_subscriber::EnvFilter::new("debug")
+        }
+    } else {
+        tracing_subscriber::EnvFilter::from_default_env()
+    };
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+    if verbose {
+        tracing::info!(verbose = true, "verbose tracing enabled (RUST_LOG=debug)");
+    }
 }
 
-/// Minimal `--config <path>` parsing. No other flags exist yet, and this
-/// crate deliberately doesn't take on a CLI-parsing dependency (`clap`) for
-/// a single optional flag — later tasks can promote this if the surface
-/// grows.
+/// Thin `clap` wrapper that mirrors `kestrel-runtime --verbose` so both
+/// binaries share the same `clap` long flag and `RUST_LOG=debug` semantics.
+/// Keeps `--config` compatible with the pre-Phase-14 manual parser.
+#[derive(clap::Parser, Debug)]
+#[command(name = "kestreld", about = "kestrel daemon")]
+struct Cli {
+    /// Path to config file
+    #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+    config: PathBuf,
+    /// Enable verbose tracing (RUST_LOG=debug, per-phase timing)
+    #[arg(long)]
+    verbose: bool,
+}
+
+/// Minimal `--config <path>` parsing. Retained for unit-test coverage of the
+/// manual path; `main()` now prefers `clap::Parser::parse` via `Cli`.
+#[cfg(test)]
 fn parse_config_path(args: impl Iterator<Item = String>) -> Result<PathBuf> {
     let mut args = args.skip(1); // skip argv[0]
     let mut config_path = PathBuf::from(DEFAULT_CONFIG_PATH);
+    let mut _verbose = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => {
-                let value = args
-                    .next()
-                    .context("--config requires a path argument")?;
+                let value = args.next().context("--config requires a path argument")?;
                 config_path = PathBuf::from(value);
             }
             other if other.starts_with("--config=") => {
                 config_path = PathBuf::from(&other["--config=".len()..]);
             }
+            "--verbose" => _verbose = true,
             other => {
                 anyhow::bail!("unrecognized argument: {other}");
             }
         }
     }
     Ok(config_path)
+}
+
+/// Helper that emits a timed span for a daemon setup phase. Mirrors
+/// `kestrel-runtime::timed_phase` but local to this crate to avoid a cross-
+/// crate dependency.
+fn timed_phase<T>(phase: &str, f: impl FnOnce() -> Result<T, anyhow::Error>) -> Result<T> {
+    let start = std::time::Instant::now();
+    tracing::info!(phase, "starting");
+    let res = f();
+    let elapsed = start.elapsed();
+    match &res {
+        Ok(_) => tracing::info!(phase, elapsed_ms = elapsed.as_millis() as u64, "done"),
+        Err(_) => tracing::warn!(phase, elapsed_ms = elapsed.as_millis() as u64, "failed"),
+    }
+    res
+}
+async fn timed_phase_async<T, F, Fut>(phase: &str, f: F) -> Result<T>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let start = std::time::Instant::now();
+    tracing::info!(phase, "starting");
+    let res = f().await;
+    let elapsed = start.elapsed();
+    match &res {
+        Ok(_) => tracing::info!(phase, elapsed_ms = elapsed.as_millis() as u64, "done"),
+        Err(_) => tracing::warn!(phase, elapsed_ms = elapsed.as_millis() as u64, "failed"),
+    }
+    res
 }
 
 /// Remove a stale Unix socket file left behind by a previous, uncleanly
@@ -270,8 +373,7 @@ fn remove_stale_socket(path: &Path) -> Result<()> {
                         .with_context(|| format!("removing stale socket {}", path.display()))?;
                 }
                 Err(e) => {
-                    return Err(e)
-                        .with_context(|| format!("probing socket {}", path.display()));
+                    return Err(e).with_context(|| format!("probing socket {}", path.display()));
                 }
             }
         }
@@ -338,10 +440,11 @@ async fn recover_registry(run_dir: &Path, data_dir: &Path) -> Result<Registry> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing();
+    let cli = <Cli as clap::Parser>::parse();
+    init_tracing(cli.verbose);
 
-    let config_path = parse_config_path(std::env::args())?;
-    let config = Config::load(&config_path)
+    let config_path = cli.config.clone();
+    let config = timed_phase("kestreld.config.load", || Config::load(&config_path))
         .with_context(|| format!("loading config from {}", config_path.display()))?;
 
     tracing::info!(
@@ -356,19 +459,33 @@ async fn main() -> Result<()> {
     // one racing recovery/cleanup in the background.
     let run_dir = PathBuf::from(&config.daemon.state_dir);
     let data_dir = PathBuf::from(&config.daemon.data_dir);
-    tokio::fs::create_dir_all(&run_dir)
-        .await
-        .with_context(|| format!("creating run_dir {}", run_dir.display()))?;
-    tokio::fs::create_dir_all(&data_dir)
-        .await
-        .with_context(|| format!("creating data_dir {}", data_dir.display()))?;
+    timed_phase_async("kestreld.setup.create_dirs", || async {
+        tokio::fs::create_dir_all(&run_dir)
+            .await
+            .with_context(|| format!("creating run_dir {}", run_dir.display()))?;
+        tokio::fs::create_dir_all(&data_dir)
+            .await
+            .with_context(|| format!("creating data_dir {}", data_dir.display()))?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await?;
 
-    let registry = recover_registry(&run_dir, &data_dir)
-        .await
-        .with_context(|| format!("recovering container registry from {}", run_dir.display()))?;
+    let registry = timed_phase_async("kestreld.recovery", || async {
+        recover_registry(&run_dir, &data_dir)
+            .await
+            .with_context(|| format!("recovering container registry from {}", run_dir.display()))
+    })
+    .await?;
     let recovered_count = registry.read().await.len();
 
+    let start_ls = std::time::Instant::now();
+    tracing::info!(phase = "kestreld.leak_sweep", "starting");
     let leaked_cleaned = leak_sweep::run(&run_dir, &data_dir, &registry).await;
+    tracing::info!(
+        phase = "kestreld.leak_sweep",
+        elapsed_ms = start_ls.elapsed().as_millis() as u64,
+        "done"
+    );
 
     tracing::info!(
         recovered = recovered_count,
@@ -379,7 +496,8 @@ async fn main() -> Result<()> {
     // Resolved once here (Task 8), not per-request — `POST /containers`
     // spawns these two as real subprocesses (`api::containers::
     // create_container`).
-    let shim_path = resolve_sibling_binary("kestrel-shim").context("locating kestrel-shim binary")?;
+    let shim_path =
+        resolve_sibling_binary("kestrel-shim").context("locating kestrel-shim binary")?;
     let runtime_path =
         resolve_sibling_binary("kestrel-runtime").context("locating kestrel-runtime binary")?;
 
@@ -427,7 +545,10 @@ async fn main() -> Result<()> {
     // bus it subscribes to is built, so no real violation published later
     // can ever be missed (a `broadcast` channel only delivers to
     // receivers that already existed at publish time).
-    api::introspect::spawn_seccomp_log_consumer(app_state.event_bus.clone(), app_state.seccomp_log.clone());
+    api::introspect::spawn_seccomp_log_consumer(
+        app_state.event_bus.clone(),
+        app_state.seccomp_log.clone(),
+    );
 
     // Task 15: the copy-up scanner — its own, separate, slower-cadence
     // background poller (`config.storage.copyup_scan_interval_s`,
@@ -571,7 +692,10 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         drop(listener); // simulate a crashed process: fd closed, file left behind
 
-        assert!(path.exists(), "socket file should still be on disk after drop");
+        assert!(
+            path.exists(),
+            "socket file should still be on disk after drop"
+        );
 
         remove_stale_socket(&path).expect("genuinely stale socket should be removed cleanly");
 
@@ -867,7 +991,8 @@ mod tests {
 
         let run_dir = tempfile::tempdir().expect("run_dir tempdir");
         let cgroup_guard = CgroupGuard(
-            kestrel_cgroup::manager::CgroupManager::new(cgroups_mount, id).expect("valid cgroup id"),
+            kestrel_cgroup::manager::CgroupManager::new(cgroups_mount, id)
+                .expect("valid cgroup id"),
         );
 
         (run_dir, mount_guard, cgroup_guard)
@@ -894,7 +1019,11 @@ mod tests {
             // and then crashed: create() succeeds, nothing cleans it up ----
             let create_result =
                 kestrel_runtime::create::create(&id, &bundle, run_dir.path(), data_dir.path());
-            assert!(create_result.is_ok(), "create() failed: {:?}", create_result.err());
+            assert!(
+                create_result.is_ok(),
+                "create() failed: {:?}",
+                create_result.err()
+            );
 
             let state_path = run_dir.path().join(&id).join("state.json");
             let state = kestrel_oci::state::State::read(&state_path).expect("read state.json");
@@ -991,14 +1120,20 @@ mod tests {
         let cgroup = kestrel_cgroup::manager::CgroupManager::new(cgroups_mount, &id)
             .expect("valid cgroup id");
         cgroup.create().expect("create orphaned cgroup");
-        assert!(cgroup.path.exists(), "orphaned cgroup dir should exist before the sweep");
+        assert!(
+            cgroup.path.exists(),
+            "orphaned cgroup dir should exist before the sweep"
+        );
 
         // Empty registry — nothing claims this cgroup, so it's a genuine
         // orphan.
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
 
         let cleaned = leak_sweep::run(run_dir.path(), data_dir.path(), &registry).await;
-        assert!(cleaned >= 1, "expected at least the orphaned cgroup to be cleaned, got {cleaned}");
+        assert!(
+            cleaned >= 1,
+            "expected at least the orphaned cgroup to be cleaned, got {cleaned}"
+        );
         assert!(
             !cgroup.path.exists(),
             "orphaned cgroup dir should have been destroyed by leak_sweep::run"
@@ -1065,7 +1200,10 @@ mod tests {
         })
     }
 
-    async fn poll_until<T, F: FnMut() -> Option<T>>(timeout: std::time::Duration, mut probe: F) -> Option<T> {
+    async fn poll_until<T, F: FnMut() -> Option<T>>(
+        timeout: std::time::Duration,
+        mut probe: F,
+    ) -> Option<T> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             if let Some(v) = probe() {
@@ -1158,8 +1296,12 @@ mod tests {
             String::from_utf8_lossy(&response_bytes)
         );
 
-        let parsed: serde_json::Value = serde_json::from_slice(&response_bytes).expect("parse response JSON");
-        let id = parsed["id"].as_str().expect("response has a real id").to_string();
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&response_bytes).expect("parse response JSON");
+        let id = parsed["id"]
+            .as_str()
+            .expect("response has a real id")
+            .to_string();
         assert!(!id.is_empty());
 
         // ---- state.json shows Created ----
@@ -1188,10 +1330,16 @@ mod tests {
 
         // ---- meta.json carries the real tty value ----
         let meta = registry::read_meta(data_dir.path(), &id).await;
-        assert!(meta.tty, "meta.json's tty should be true, matching the request");
+        assert!(
+            meta.tty,
+            "meta.json's tty should be true, matching the request"
+        );
 
         // ---- registry updated ----
-        assert!(registry.read().await.contains_key(&id), "registry should contain the new container");
+        assert!(
+            registry.read().await.contains_key(&id),
+            "registry should contain the new container"
+        );
 
         // ---- cleanup: kill the stub init, unpin every namespace
         // create() pinned under run_dir/<id>/ns/* (default mode: Pid,
@@ -1245,7 +1393,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task8-bridge").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task8-bridge")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -1288,8 +1437,12 @@ mod tests {
             "unexpected response: {}",
             String::from_utf8_lossy(&response_bytes)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&response_bytes).expect("parse response JSON");
-        let id = parsed["id"].as_str().expect("response has a real id").to_string();
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&response_bytes).expect("parse response JSON");
+        let id = parsed["id"]
+            .as_str()
+            .expect("response has a real id")
+            .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
         let state = kestrel_oci::state::State::read(&state_path).expect("read state.json");
@@ -1426,7 +1579,10 @@ mod tests {
                     return Ok((stream, peer));
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    anyhow::ensure!(std::time::Instant::now() < deadline, "timed out waiting for a connection");
+                    anyhow::ensure!(
+                        std::time::Instant::now() < deadline,
+                        "timed out waiting for a connection"
+                    );
                     std::thread::sleep(Duration::from_millis(20));
                 }
                 Err(e) => return Err(e.into()),
@@ -1451,7 +1607,8 @@ mod tests {
                 let listener = std::net::TcpListener::bind(bind_addr)
                     .with_context(|| format!("binding {bind_addr}"))?;
                 let _ = ready_tx.send(());
-                let (mut stream, peer) = t17_accept_with_timeout(&listener, Duration::from_secs(10))?;
+                let (mut stream, peer) =
+                    t17_accept_with_timeout(&listener, Duration::from_secs(10))?;
                 let mut buf = [0u8; 4];
                 std::io::Read::read_exact(&mut stream, &mut buf).context("reading PING")?;
                 anyhow::ensure!(&buf == T17_PING, "expected PING, got {buf:?}");
@@ -1462,7 +1619,8 @@ mod tests {
     }
 
     fn t17_connect_and_ping(target: std::net::SocketAddr) -> anyhow::Result<()> {
-        let mut stream = std::net::TcpStream::connect(target).with_context(|| format!("connecting to {target}"))?;
+        let mut stream = std::net::TcpStream::connect(target)
+            .with_context(|| format!("connecting to {target}"))?;
         std::io::Write::write_all(&mut stream, T17_PING).context("writing PING")?;
         let mut buf = [0u8; 4];
         std::io::Read::read_exact(&mut stream, &mut buf).context("reading PONG")?;
@@ -1523,17 +1681,25 @@ mod tests {
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
                 .unwrap();
-            let response = tower::ServiceExt::oneshot(app, request).await.expect("router oneshot");
+            let response = tower::ServiceExt::oneshot(app, request)
+                .await
+                .expect("router oneshot");
             let status = response.status();
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.expect("reading body");
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("reading body");
             assert_eq!(
                 status,
                 axum::http::StatusCode::CREATED,
                 "create failed: {}",
                 String::from_utf8_lossy(&bytes)
             );
-            let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("parse response JSON");
-            parsed["id"].as_str().expect("response has a real id").to_string()
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&bytes).expect("parse response JSON");
+            parsed["id"]
+                .as_str()
+                .expect("response has a real id")
+                .to_string()
         }
         let id_a = create_one(app.clone(), rootfs_dir.path()).await;
         let id_b = create_one(app.clone(), rootfs_dir.path()).await;
@@ -1565,9 +1731,13 @@ mod tests {
                 .uri(format!("/containers/{id}/network"))
                 .body(axum::body::Body::empty())
                 .unwrap();
-            let response = tower::ServiceExt::oneshot(app, request).await.expect("router oneshot");
+            let response = tower::ServiceExt::oneshot(app, request)
+                .await
+                .expect("router oneshot");
             assert_eq!(response.status(), axum::http::StatusCode::OK);
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.expect("reading body");
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("reading body");
             serde_json::from_slice(&bytes).expect("parse response JSON")
         }
         let network_a = get_network(app.clone(), &id_a).await;
@@ -1576,10 +1746,21 @@ mod tests {
             assert_eq!(network["mode"], "bridge");
             assert_eq!(network["bridge_name"], "kbr-t17net");
             assert_eq!(network["gateway"], "172.70.0.1");
-            assert!(network["ip"].as_str().is_some(), "network info must carry a real ip: {network:?}");
+            assert!(
+                network["ip"].as_str().is_some(),
+                "network info must carry a real ip: {network:?}"
+            );
         }
-        let ip_a: std::net::Ipv4Addr = network_a["ip"].as_str().unwrap().parse().expect("valid ipv4");
-        let ip_b: std::net::Ipv4Addr = network_b["ip"].as_str().unwrap().parse().expect("valid ipv4");
+        let ip_a: std::net::Ipv4Addr = network_a["ip"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .expect("valid ipv4");
+        let ip_b: std::net::Ipv4Addr = network_b["ip"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .expect("valid ipv4");
         assert_ne!(ip_a, ip_b, "the two containers must get distinct IPs");
 
         // ---- GET /system/topology lists both under the same bridge ----
@@ -1595,13 +1776,18 @@ mod tests {
         let topology_bytes = axum::body::to_bytes(topology_response.into_body(), usize::MAX)
             .await
             .expect("reading body");
-        let topology: serde_json::Value = serde_json::from_slice(&topology_bytes).expect("parse topology JSON");
+        let topology: serde_json::Value =
+            serde_json::from_slice(&topology_bytes).expect("parse topology JSON");
         let bridges = topology["bridges"].as_array().expect("bridges array");
         let bridge_entry = bridges
             .iter()
             .find(|b| b["name"] == "kbr-t17net")
-            .unwrap_or_else(|| panic!("expected a \"kbr-t17net\" bridge entry in topology, got {topology:?}"));
-        let containers = bridge_entry["containers"].as_array().expect("containers array");
+            .unwrap_or_else(|| {
+                panic!("expected a \"kbr-t17net\" bridge entry in topology, got {topology:?}")
+            });
+        let containers = bridge_entry["containers"]
+            .as_array()
+            .expect("containers array");
         for (id, ip) in [(&id_a, ip_a), (&id_b, ip_b)] {
             assert!(
                 containers
@@ -1624,7 +1810,9 @@ mod tests {
             .expect("listener in container B must become ready");
         let pin_a_for_client = pin_a.clone();
         tokio::task::spawn_blocking(move || {
-            kestrel_net::netns::nsenter(&pin_a_for_client, move || t17_connect_and_ping(listen_addr))
+            kestrel_net::netns::nsenter(&pin_a_for_client, move || {
+                t17_connect_and_ping(listen_addr)
+            })
         })
         .await
         .expect("client task panicked")
@@ -1676,7 +1864,9 @@ mod tests {
                 network::ipam_state_path(data_dir.path()),
             )
             .expect("load real IPAM state");
-            let reallocated = ipam.allocate("t17-release-probe").expect("allocate after release");
+            let reallocated = ipam
+                .allocate("t17-release-probe")
+                .expect("allocate after release");
             assert_eq!(
                 reallocated, ip_b,
                 "container B's IP must have been genuinely released by delete — the next \
@@ -1885,7 +2075,11 @@ mod tests {
             file_stdout.trim()
         );
         std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
-            panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display())
+            panic!(
+                "copy {} to {}: {e}",
+                fixture_path.display(),
+                dest.join("fixture").display()
+            )
         });
         std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755))
             .expect("chmod fixture binary");
@@ -1951,7 +2145,9 @@ mod tests {
             .uri(uri)
             .body(axum::body::Body::empty())
             .unwrap();
-        let response = tower::ServiceExt::oneshot(app, request).await.expect("router oneshot");
+        let response = tower::ServiceExt::oneshot(app, request)
+            .await
+            .expect("router oneshot");
         let status = response.status();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -2046,7 +2242,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // `start()` writes `Running` BEFORE its own best-effort resolution
         // of the entrypoint's real host pid finishes (`start.rs`'s own doc
@@ -2146,7 +2345,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task9-delete").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task9-delete")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -2205,8 +2405,12 @@ mod tests {
         );
 
         // ---- DELETE ?force=true must succeed, force-killing the stub. ----
-        let (force_status, force_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (force_status, force_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             force_status,
             axum::http::StatusCode::OK,
@@ -2324,7 +2528,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // Wait for the recorded pid to become the FIXTURE's own (not
         // kestrel-init's) — see the happy-path test's own comment on why:
@@ -2442,7 +2649,11 @@ mod tests {
     /// the `{"cmd":[...],"tty":false}` init message, collects every Binary
     /// chunk into `output`, and returns the `exit_code` reported by the
     /// final `{"type":"exit",...}` control message.
-    async fn run_exec_over_ws(addr: std::net::SocketAddr, id: &str, cmd: &[&str]) -> (Vec<u8>, Option<i32>) {
+    async fn run_exec_over_ws(
+        addr: std::net::SocketAddr,
+        id: &str,
+        cmd: &[&str],
+    ) -> (Vec<u8>, Option<i32>) {
         let url = format!("ws://{addr}/containers/{id}/exec");
         let (mut ws, _resp) = tokio_tungstenite::connect_async(url)
             .await
@@ -2494,7 +2705,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task10-exec").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task10-exec")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -2546,7 +2758,11 @@ mod tests {
             "exec'd /bin/echo hi's output did not round-trip over the WS bridge, got: {:?}",
             String::from_utf8_lossy(&output)
         );
-        assert_eq!(exit_code, Some(0), "expected a clean 0 exit code from /bin/echo");
+        assert_eq!(
+            exit_code,
+            Some(0),
+            "expected a clean 0 exit code from /bin/echo"
+        );
 
         server_handle.abort();
         drop(process_guard);
@@ -2568,7 +2784,11 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task10-exec-nonzero").expect("write marker");
+        std::fs::write(
+            rootfs_dir.path().join("marker"),
+            b"hello-task10-exec-nonzero",
+        )
+        .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -2614,7 +2834,11 @@ mod tests {
         let (addr, server_handle) = spawn_test_server(app).await;
         let (_output, exit_code) = run_exec_over_ws(addr, &id, &["/bin/sh", "-c", "exit 7"]).await;
 
-        assert_eq!(exit_code, Some(7), "expected the real nonzero exit code (7) to be reported");
+        assert_eq!(
+            exit_code,
+            Some(7),
+            "expected the real nonzero exit code (7) to be reported"
+        );
 
         server_handle.abort();
         drop(process_guard);
@@ -2707,7 +2931,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // Same "wait for the real entrypoint's pid, not kestrel-init's own"
         // reasoning as every other real-container test in this file.
@@ -2741,7 +2968,11 @@ mod tests {
         // a count-file path and wait for it to appear (written right after
         // the fork loop, well before the 2s post-spawn sleep) before
         // proceeding — a real, provable signal instead of a proxy one. ----
-        let count_host_path = data_dir.join("snapshots").join(&id).join("upper").join("spawn-count");
+        let count_host_path = data_dir
+            .join("snapshots")
+            .join(&id)
+            .join("upper")
+            .join("spawn-count");
         let achieved = poll_until(Duration::from_secs(10), || {
             std::fs::read_to_string(&count_host_path)
                 .ok()
@@ -2758,7 +2989,8 @@ mod tests {
             "fixture achieved 0 forked children — nothing for top to find beyond the entrypoint itself"
         );
 
-        let (top_status, top_body) = call_router(app.clone(), "GET", format!("/containers/{id}/top")).await;
+        let (top_status, top_body) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/top")).await;
         assert_eq!(
             top_status,
             axum::http::StatusCode::OK,
@@ -2767,25 +2999,33 @@ mod tests {
         );
         let parsed: serde_json::Value =
             serde_json::from_slice(&top_body).expect("parse top response JSON");
-        let processes = parsed["processes"].as_array().expect("processes is an array");
+        let processes = parsed["processes"]
+            .as_array()
+            .expect("processes is an array");
         assert!(
             processes.len() >= 2,
             "expected the fixture entrypoint plus at least one spawned-then-abandoned child, got: {processes:?}"
         );
         for p in processes {
             let host_pid = p["host_pid"].as_i64().expect("host_pid is present");
-            let container_pid = p["container_pid"].as_i64().expect("container_pid is present");
+            let container_pid = p["container_pid"]
+                .as_i64()
+                .expect("container_pid is present");
             assert!(host_pid > 0, "implausible host_pid in {p:?}");
             assert!(container_pid > 0, "implausible container_pid in {p:?}");
         }
-        let host_pids: HashSet<i64> = processes.iter().map(|p| p["host_pid"].as_i64().unwrap()).collect();
+        let host_pids: HashSet<i64> = processes
+            .iter()
+            .map(|p| p["host_pid"].as_i64().unwrap())
+            .collect();
         assert!(
             host_pids.contains(&(real_entrypoint_pid.unwrap().pid.unwrap() as i64)),
             "top's process list should include the entrypoint itself, got: {processes:?}"
         );
 
         // ---- cleanup ----
-        let (stop_status, _) = call_router(app.clone(), "POST", format!("/containers/{id}/stop")).await;
+        let (stop_status, _) =
+            call_router(app.clone(), "POST", format!("/containers/{id}/stop")).await;
         assert_eq!(stop_status, axum::http::StatusCode::OK);
         let (delete_status, delete_body) =
             call_router(app.clone(), "DELETE", format!("/containers/{id}")).await;
@@ -2825,7 +3065,11 @@ mod tests {
     /// /containers/:id/attach` reached the container's stdin and came back
     /// out its stdout, through the shim's real `attach.sock` framing, not
     /// just that the endpoint returned some response.
-    async fn attach_send_and_collect_echo(addr: std::net::SocketAddr, id: &str, payload: &[u8]) -> Vec<u8> {
+    async fn attach_send_and_collect_echo(
+        addr: std::net::SocketAddr,
+        id: &str,
+        payload: &[u8],
+    ) -> Vec<u8> {
         let url = format!("ws://{addr}/containers/{id}/attach");
         let (mut ws, _resp) = tokio_tungstenite::connect_async(url)
             .await
@@ -2940,7 +3184,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
         // Same "wait for the real entrypoint's pid, not kestrel-init's
         // own" reasoning as the Task 10 `top` test above — makes sure
         // `/fixture echo-stdin` has actually been forked (and put its
@@ -2992,7 +3239,8 @@ mod tests {
 
         // ---- cleanup ----
         server_handle.abort();
-        let (stop_status, _) = call_router(app.clone(), "POST", format!("/containers/{id}/stop")).await;
+        let (stop_status, _) =
+            call_router(app.clone(), "POST", format!("/containers/{id}/stop")).await;
         assert_eq!(stop_status, axum::http::StatusCode::OK);
         let (delete_status, delete_body) =
             call_router(app.clone(), "DELETE", format!("/containers/{id}")).await;
@@ -3027,7 +3275,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task12-resize-409").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task12-resize-409")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -3144,7 +3393,9 @@ mod tests {
             );
             let frame = tokio::time::timeout(remaining, body.frame())
                 .await
-                .unwrap_or_else(|_| panic!("timed out waiting for next SSE frame; accumulated so far: {acc:?}"))
+                .unwrap_or_else(|_| {
+                    panic!("timed out waiting for next SSE frame; accumulated so far: {acc:?}")
+                })
                 .expect("SSE body stream ended unexpectedly")
                 .expect("reading SSE frame");
             if let Some(data) = frame.data_ref() {
@@ -3153,13 +3404,17 @@ mod tests {
             while let Some(idx) = acc.find("\n\n") {
                 let chunk: String = acc.drain(..idx + 2).collect();
                 for line in chunk.lines() {
-                    let Some(json_str) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) else {
+                    let Some(json_str) = line
+                        .strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"))
+                    else {
                         continue; // keep-alive/comment lines, blank lines, etc.
                     };
                     let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str.trim()) else {
                         continue;
                     };
-                    if v["type"] == "seccomp.violation" && v.get("id").and_then(|x| x.as_str()) == Some(container_id)
+                    if v["type"] == "seccomp.violation"
+                        && v.get("id").and_then(|x| x.as_str()) == Some(container_id)
                     {
                         return v;
                     }
@@ -3227,7 +3482,9 @@ mod tests {
             .method("POST")
             .uri("/containers")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&create_body).unwrap(),
+            ))
             .unwrap();
         let create_response = tower::ServiceExt::oneshot(app.clone(), create_request)
             .await
@@ -3248,7 +3505,8 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
@@ -3267,7 +3525,10 @@ mod tests {
         // then finally this test's own `_mount_guard` (declared earlier,
         // near the top) unmounts the cgroup2 view.
         let shim_guard = ShimGuard(id.clone());
-        let artifacts_guard = ContainerArtifactsGuard { run_dir: run_dir.path().to_path_buf(), id: id.clone() };
+        let artifacts_guard = ContainerArtifactsGuard {
+            run_dir: run_dir.path().to_path_buf(),
+            id: id.clone(),
+        };
 
         // ---- open (and keep alive) an attach WS session BEFORE start —
         // still worth doing early even though it's no longer strictly
@@ -3317,11 +3578,14 @@ mod tests {
         // proceeds — the entrypoint hasn't even been told to run yet. No
         // guesswork, no fixed budget to size, and no residual window left
         // to reproduce under load.
-        let ready_msg = tokio::time::timeout(Duration::from_secs(10), futures_util::StreamExt::next(&mut ws))
-            .await
-            .expect("timed out waiting for the attach session's Ready acknowledgment")
-            .expect("attach WS stream ended before sending Ready")
-            .expect("reading the attach WS Ready message");
+        let ready_msg = tokio::time::timeout(
+            Duration::from_secs(10),
+            futures_util::StreamExt::next(&mut ws),
+        )
+        .await
+        .expect("timed out waiting for the attach session's Ready acknowledgment")
+        .expect("attach WS stream ended before sending Ready")
+        .expect("reading the attach WS Ready message");
         assert_eq!(
             ready_msg,
             tokio_tungstenite::tungstenite::Message::Text(api::attach::ATTACH_READY_TEXT.into()),
@@ -3359,7 +3623,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // ---- the real assertion: a seccomp.violation event for THIS
         // container, with the right syscall name, genuinely arrives on
@@ -3458,7 +3725,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-namespaces").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-namespaces")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -3502,19 +3770,22 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
         // ---- the real assertion ----
-        let (status, resp_body) = call_router(app.clone(), "GET", format!("/containers/{id}/namespaces")).await;
+        let (status, resp_body) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/namespaces")).await;
         assert_eq!(
             status,
             axum::http::StatusCode::OK,
             "namespaces endpoint failed: {}",
             String::from_utf8_lossy(&resp_body)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&resp_body).expect("parse namespaces JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&resp_body).expect("parse namespaces JSON");
         let namespaces = parsed["namespaces"].as_array().expect("namespaces array");
 
         assert!(
@@ -3523,7 +3794,10 @@ mod tests {
              bundle, got: {parsed}"
         );
 
-        let types: Vec<&str> = namespaces.iter().map(|n| n["ns_type"].as_str().unwrap()).collect();
+        let types: Vec<&str> = namespaces
+            .iter()
+            .map(|n| n["ns_type"].as_str().unwrap())
+            .collect();
         assert!(
             !types.contains(&"mnt"),
             "this dev VM is documented (create.rs::pin_namespaces) to always fail pinning the \
@@ -3539,7 +3813,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("stat {proc_path}: {e}"))
                 .ino();
             assert_eq!(
-                reported_inode, real_inode,
+                reported_inode,
+                real_inode,
                 "reported inode for ns_type {ns_type:?} must match /proc/{}/ns/{ns_type}'s real \
                  inode, got response {parsed}",
                 init_pid.as_raw()
@@ -3557,8 +3832,12 @@ mod tests {
         // leak into this shared VM), then the same best-effort namespace-
         // pin/data-dir cleanup every other test in this module already
         // does, in case delete() itself didn't reach that step. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -3595,7 +3874,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-mounts").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-mounts")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -3639,12 +3919,14 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
         let mnt_pin = run_dir.path().join(&id).join("ns").join("mnt");
-        let (status, resp_body) = call_router(app.clone(), "GET", format!("/containers/{id}/mounts")).await;
+        let (status, resp_body) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/mounts")).await;
 
         if mnt_pin.exists() {
             assert_eq!(
@@ -3654,9 +3936,13 @@ mod tests {
                 mnt_pin.display(),
                 String::from_utf8_lossy(&resp_body)
             );
-            let parsed: serde_json::Value = serde_json::from_slice(&resp_body).expect("parse mounts JSON");
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&resp_body).expect("parse mounts JSON");
             let mounts = parsed["mounts"].as_array().expect("mounts array");
-            assert!(!mounts.is_empty(), "a real container's mountinfo must never be empty: {parsed}");
+            assert!(
+                !mounts.is_empty(),
+                "a real container's mountinfo must never be empty: {parsed}"
+            );
             assert!(
                 mounts.iter().any(|m| m["mount_point"] == "/"),
                 "expected a root '/' mount entry in a real container's mountinfo: {parsed}"
@@ -3680,7 +3966,8 @@ mod tests {
                 mnt_pin.display(),
                 String::from_utf8_lossy(&resp_body)
             );
-            let parsed: serde_json::Value = serde_json::from_slice(&resp_body).expect("parse error JSON");
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&resp_body).expect("parse error JSON");
             let message = parsed["error"].as_str().unwrap_or_default();
             assert!(
                 message.contains("pinned mount namespace"),
@@ -3690,8 +3977,12 @@ mod tests {
 
         // ---- cleanup: see test_namespaces_endpoint_...'s own cleanup
         // comment for why DELETE runs here too. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -3724,7 +4015,8 @@ mod tests {
         let _mount_guard = mount_cgroups(data_dir.path());
 
         let rootfs_dir = tempfile::tempdir().expect("rootfs tempdir");
-        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-caps").expect("write marker");
+        std::fs::write(rootfs_dir.path().join("marker"), b"hello-task18-caps")
+            .expect("write marker");
 
         let registry: Registry = Arc::new(RwLock::new(HashMap::new()));
         let app_state = Arc::new(AppState {
@@ -3768,30 +4060,44 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
-        let (status, resp_body) = call_router(app.clone(), "GET", format!("/containers/{id}/caps")).await;
+        let (status, resp_body) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/caps")).await;
         assert_eq!(
             status,
             axum::http::StatusCode::OK,
             "caps endpoint failed: {}",
             String::from_utf8_lossy(&resp_body)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&resp_body).expect("parse caps JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&resp_body).expect("parse caps JSON");
         let expected = serde_json::json!(["CAP_AUDIT_WRITE", "CAP_KILL", "CAP_NET_BIND_SERVICE"]);
-        for field in ["bounding", "effective", "inheritable", "permitted", "ambient"] {
+        for field in [
+            "bounding",
+            "effective",
+            "inheritable",
+            "permitted",
+            "ambient",
+        ] {
             assert_eq!(parsed[field], expected, "unexpected {field} set: {parsed}");
         }
 
         // Cross-check against the real, independently-read bytes of the
         // container's own on-disk config.json — not just trusting the
         // endpoint's own internal serialization round trip.
-        let config_path = data_dir.path().join("bundles").join(&id).join("config.json");
-        let raw: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read real config.json"))
-                .expect("parse real config.json");
+        let config_path = data_dir
+            .path()
+            .join("bundles")
+            .join(&id)
+            .join("config.json");
+        let raw: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&config_path).expect("read real config.json"),
+        )
+        .expect("parse real config.json");
         let mut on_disk_bounding: Vec<String> = raw["process"]["capabilities"]["bounding"]
             .as_array()
             .expect("config.json has process.capabilities.bounding")
@@ -3807,8 +4113,12 @@ mod tests {
 
         // ---- cleanup: see test_namespaces_endpoint_...'s own cleanup
         // comment for why DELETE runs here too. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -3901,11 +4211,15 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
         let shim_guard = ShimGuard(id.clone());
-        let artifacts_guard = ContainerArtifactsGuard { run_dir: run_dir.path().to_path_buf(), id: id.clone() };
+        let artifacts_guard = ContainerArtifactsGuard {
+            run_dir: run_dir.path().to_path_buf(),
+            id: id.clone(),
+        };
 
         let (start_status, start_body) =
             call_router(app.clone(), "POST", format!("/containers/{id}/start")).await;
@@ -3922,9 +4236,22 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
-        (app, id, run_dir, mount_guard, process_guard, shim_guard, artifacts_guard, state_path, init_pid)
+        (
+            app,
+            id,
+            run_dir,
+            mount_guard,
+            process_guard,
+            shim_guard,
+            artifacts_guard,
+            state_path,
+            init_pid,
+        )
     }
 
     /// Real proof of Step 2: `memory_current` genuinely rises under
@@ -3938,18 +4265,31 @@ mod tests {
     #[ignore = "requires root"]
     async fn test_cgroup_endpoint_reports_memory_current_rising_under_real_load() {
         let memory_limit: i64 = 200 * 1024 * 1024; // 200 MiB — comfortably above the 20 MiB this test allocates.
-        let (app, id, _run_dir, _mount_guard, process_guard, shim_guard, artifacts_guard, _state_path, init_pid) =
-            t18_spawn_alloc_hold_container(20, memory_limit).await;
+        let (
+            app,
+            id,
+            _run_dir,
+            _mount_guard,
+            process_guard,
+            shim_guard,
+            artifacts_guard,
+            _state_path,
+            init_pid,
+        ) = t18_spawn_alloc_hold_container(20, memory_limit).await;
 
-        let (status0, body0) = call_router(app.clone(), "GET", format!("/containers/{id}/cgroup")).await;
+        let (status0, body0) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/cgroup")).await;
         assert_eq!(
             status0,
             axum::http::StatusCode::OK,
             "cgroup endpoint failed: {}",
             String::from_utf8_lossy(&body0)
         );
-        let baseline: serde_json::Value = serde_json::from_slice(&body0).expect("parse cgroup JSON");
-        let baseline_memory = baseline["memory_current"].as_u64().expect("memory_current is a number");
+        let baseline: serde_json::Value =
+            serde_json::from_slice(&body0).expect("parse cgroup JSON");
+        let baseline_memory = baseline["memory_current"]
+            .as_u64()
+            .expect("memory_current is a number");
 
         // Poll (rather than one fixed sleep) until memory_current has
         // genuinely risen by a real, substantial margin — alloc-hold's own
@@ -3958,17 +4298,24 @@ mod tests {
         // accumulate, plus real allocator/page-fault overhead.
         let deadline = std::time::Instant::now() + Duration::from_secs(15);
         let latest: serde_json::Value = loop {
-            let (status, body) = call_router(app.clone(), "GET", format!("/containers/{id}/cgroup")).await;
+            let (status, body) =
+                call_router(app.clone(), "GET", format!("/containers/{id}/cgroup")).await;
             assert_eq!(status, axum::http::StatusCode::OK);
-            let parsed: serde_json::Value = serde_json::from_slice(&body).expect("parse cgroup JSON");
-            let current = parsed["memory_current"].as_u64().expect("memory_current is a number");
-            if current >= baseline_memory + 5 * 1024 * 1024 || std::time::Instant::now() >= deadline {
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&body).expect("parse cgroup JSON");
+            let current = parsed["memory_current"]
+                .as_u64()
+                .expect("memory_current is a number");
+            if current >= baseline_memory + 5 * 1024 * 1024 || std::time::Instant::now() >= deadline
+            {
                 break parsed;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         };
 
-        let final_memory = latest["memory_current"].as_u64().expect("memory_current is a number");
+        let final_memory = latest["memory_current"]
+            .as_u64()
+            .expect("memory_current is a number");
         assert!(
             final_memory >= baseline_memory + 5 * 1024 * 1024,
             "memory_current must rise by at least 5 MiB under alloc-hold's real load: \
@@ -3989,7 +4336,10 @@ mod tests {
             "cpu_stat.usage_usec must be genuinely non-zero after real allocator/page-fault work: \
              {latest}"
         );
-        assert!(latest["io_stat"].is_array(), "io_stat must be an array: {latest}");
+        assert!(
+            latest["io_stat"].is_array(),
+            "io_stat must be an array: {latest}"
+        );
 
         // ---- cleanup: alloc-hold sleeps ~300s after finishing its
         // allocation, so `DELETE ?force=true` (not a graceful stop) is
@@ -3999,8 +4349,12 @@ mod tests {
         // comment) doesn't leak into this shared VM beyond this test's own
         // run, matching `test_lifecycle_start_then_stop_end_to_end`'s own
         // "always delete before finishing" precedent. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4025,28 +4379,45 @@ mod tests {
     #[ignore = "requires root"]
     async fn test_pressure_endpoint_reports_valid_and_monotonic_psi_values() {
         let memory_limit: i64 = 60 * 1024 * 1024; // tighter than the cgroup test's own limit — real
-                                                    // memory pressure/reclaim is more likely to show up
-                                                    // the closer the configured limit sits to the
-                                                    // working set alloc-hold actually builds.
-        let (app, id, _run_dir, _mount_guard, process_guard, shim_guard, artifacts_guard, _state_path, init_pid) =
-            t18_spawn_alloc_hold_container(40, memory_limit).await;
+                                                  // memory pressure/reclaim is more likely to show up
+                                                  // the closer the configured limit sits to the
+                                                  // working set alloc-hold actually builds.
+        let (
+            app,
+            id,
+            _run_dir,
+            _mount_guard,
+            process_guard,
+            shim_guard,
+            artifacts_guard,
+            _state_path,
+            init_pid,
+        ) = t18_spawn_alloc_hold_container(40, memory_limit).await;
 
         fn assert_valid_psi(psi: &serde_json::Value, label: &str) {
             for line_key in ["some", "full"] {
-                let Some(line) = psi.get(line_key).filter(|v| !v.is_null()) else { continue };
+                let Some(line) = psi.get(line_key).filter(|v| !v.is_null()) else {
+                    continue;
+                };
                 for avg_key in ["avg10", "avg60", "avg300"] {
-                    let avg = line[avg_key].as_f64().unwrap_or_else(|| panic!("{label}.{line_key}.{avg_key} must be a number: {psi}"));
+                    let avg = line[avg_key].as_f64().unwrap_or_else(|| {
+                        panic!("{label}.{line_key}.{avg_key} must be a number: {psi}")
+                    });
                     assert!(
                         (0.0..=100.0).contains(&avg),
                         "{label}.{line_key}.{avg_key} must be within PSI's documented [0, 100] \
                          bound, got {avg} in {psi}"
                     );
                 }
-                assert!(line["total_us"].as_u64().is_some(), "{label}.{line_key}.total_us must be a number: {psi}");
+                assert!(
+                    line["total_us"].as_u64().is_some(),
+                    "{label}.{line_key}.total_us must be a number: {psi}"
+                );
             }
         }
 
-        let (status1, body1) = call_router(app.clone(), "GET", format!("/containers/{id}/pressure")).await;
+        let (status1, body1) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/pressure")).await;
         assert_eq!(
             status1,
             axum::http::StatusCode::OK,
@@ -4062,9 +4433,11 @@ mod tests {
         // accumulating stall time) between the two reads.
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        let (status2, body2) = call_router(app.clone(), "GET", format!("/containers/{id}/pressure")).await;
+        let (status2, body2) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/pressure")).await;
         assert_eq!(status2, axum::http::StatusCode::OK);
-        let second: serde_json::Value = serde_json::from_slice(&body2).expect("parse pressure JSON");
+        let second: serde_json::Value =
+            serde_json::from_slice(&body2).expect("parse pressure JSON");
         for resource in ["cpu", "memory", "io"] {
             assert_valid_psi(&second[resource], resource);
             let before = first[resource]["some"]["total_us"].as_u64().unwrap();
@@ -4080,8 +4453,12 @@ mod tests {
         // alloc-hold sleeps ~300s after finishing its allocation) reaps the
         // process and destroys this test's own real cgroup, matching
         // `test_lifecycle_start_then_stop_end_to_end`'s own precedent. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4169,19 +4546,22 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
         // ---- the real assertion ----
-        let (status, resp_body) = call_router(app.clone(), "GET", format!("/containers/{id}/layers")).await;
+        let (status, resp_body) =
+            call_router(app.clone(), "GET", format!("/containers/{id}/layers")).await;
         assert_eq!(
             status,
             axum::http::StatusCode::OK,
             "layers endpoint failed: {}",
             String::from_utf8_lossy(&resp_body)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&resp_body).expect("parse layers JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&resp_body).expect("parse layers JSON");
         let layers = parsed["layers"].as_array().expect("layers array");
         assert_eq!(
             layers.len(),
@@ -4193,19 +4573,28 @@ mod tests {
         assert_eq!(layers[0]["chain_id"], expected_chain_id);
 
         let expected_diff_dir =
-            kestrel_rootfs::snapshot::LayerStore::new(data_dir.path().to_path_buf()).diff_dir(&expected_chain_id);
+            kestrel_rootfs::snapshot::LayerStore::new(data_dir.path().to_path_buf())
+                .diff_dir(&expected_chain_id);
         assert_eq!(layers[0]["origin"], expected_diff_dir.display().to_string());
 
         // Independently verify the marker file genuinely landed at that
         // real path with the real content, then assert the endpoint's
         // reported size matches its real, independently-known length.
-        let real_marker = std::fs::read(expected_diff_dir.join("marker")).expect("read real marker in diff dir");
+        let real_marker =
+            std::fs::read(expected_diff_dir.join("marker")).expect("read real marker in diff dir");
         assert_eq!(real_marker, MARKER_CONTENT);
-        assert_eq!(layers[0]["size_bytes"].as_u64().unwrap(), MARKER_CONTENT.len() as u64);
+        assert_eq!(
+            layers[0]["size_bytes"].as_u64().unwrap(),
+            MARKER_CONTENT.len() as u64
+        );
 
         // ---- cleanup ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4234,8 +4623,11 @@ mod tests {
     /// explicitly).
     fn build_copyup_synthetic_rootfs_for_task19(dest: &Path) {
         build_lifecycle_synthetic_rootfs(dest);
-        std::fs::write(dest.join("app.conf"), b"lower-layer-original-app-conf-content")
-            .expect("write lower-layer app.conf");
+        std::fs::write(
+            dest.join("app.conf"),
+            b"lower-layer-original-app-conf-content",
+        )
+        .expect("write lower-layer app.conf");
     }
 
     /// Real proof of Step 2: the exact same `kestrel_rootfs::copyup::
@@ -4295,7 +4687,9 @@ mod tests {
             .method("POST")
             .uri("/containers")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&create_body).unwrap(),
+            ))
             .unwrap();
         let create_response = tower::ServiceExt::oneshot(app.clone(), create_request)
             .await
@@ -4316,7 +4710,8 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
@@ -4334,7 +4729,10 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // ---- poll the on-demand endpoint itself until the real
         // overlayfs copy-up genuinely lands (no scanner/event-bus
@@ -4343,14 +4741,16 @@ mod tests {
         const FIRST_WRITE_CONTENT: &[u8] = b"first-write-triggers-copy-up";
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         let parsed = loop {
-            let (status, body) = call_router(app.clone(), "GET", format!("/containers/{id}/copyups")).await;
+            let (status, body) =
+                call_router(app.clone(), "GET", format!("/containers/{id}/copyups")).await;
             assert_eq!(
                 status,
                 axum::http::StatusCode::OK,
                 "copyups endpoint failed: {}",
                 String::from_utf8_lossy(&body)
             );
-            let parsed: serde_json::Value = serde_json::from_slice(&body).expect("parse copyups JSON");
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&body).expect("parse copyups JSON");
             let arr = parsed["copy_ups"].as_array().expect("copy_ups array");
             if arr.iter().any(|e| e["path"] == "app.conf") {
                 break parsed;
@@ -4383,8 +4783,12 @@ mod tests {
         // destroy` steps) — `copyup_scanner.rs`'s own Task 15 test skips
         // this (it never calls `DELETE` at all), which leaks exactly this
         // container's cgroup; this test does not repeat that gap. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4469,7 +4873,9 @@ mod tests {
             .method("POST")
             .uri("/containers")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&create_body).unwrap(),
+            ))
             .unwrap();
         let create_response = tower::ServiceExt::oneshot(app.clone(), create_request)
             .await
@@ -4490,11 +4896,15 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
         let shim_guard = ShimGuard(id.clone());
-        let artifacts_guard = ContainerArtifactsGuard { run_dir: run_dir.path().to_path_buf(), id: id.clone() };
+        let artifacts_guard = ContainerArtifactsGuard {
+            run_dir: run_dir.path().to_path_buf(),
+            id: id.clone(),
+        };
 
         // ---- first assertion: the real profile, read back before the
         // container has even started, with an empty violation log. ----
@@ -4506,16 +4916,34 @@ mod tests {
             "seccomp endpoint failed: {}",
             String::from_utf8_lossy(&profile_body)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&profile_body).expect("parse seccomp JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&profile_body).expect("parse seccomp JSON");
         let profile = &parsed["profile"];
-        assert!(!profile.is_null(), "a seccomp_notify_syscalls container must report a real profile, got: {parsed}");
+        assert!(
+            !profile.is_null(),
+            "a seccomp_notify_syscalls container must report a real profile, got: {parsed}"
+        );
         assert_eq!(profile["default_action"], "SCMP_ACT_ALLOW");
-        let architectures: Vec<&str> =
-            profile["architectures"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(architectures.contains(&"SCMP_ARCH_X86_64"), "expected SCMP_ARCH_X86_64 in {architectures:?}");
-        assert!(architectures.contains(&"SCMP_ARCH_AARCH64"), "expected SCMP_ARCH_AARCH64 in {architectures:?}");
+        let architectures: Vec<&str> = profile["architectures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(
+            architectures.contains(&"SCMP_ARCH_X86_64"),
+            "expected SCMP_ARCH_X86_64 in {architectures:?}"
+        );
+        assert!(
+            architectures.contains(&"SCMP_ARCH_AARCH64"),
+            "expected SCMP_ARCH_AARCH64 in {architectures:?}"
+        );
         let syscalls = profile["syscalls"].as_array().unwrap();
-        assert_eq!(syscalls.len(), 1, "expected exactly one syscall rule, got: {parsed}");
+        assert_eq!(
+            syscalls.len(),
+            1,
+            "expected exactly one syscall rule, got: {parsed}"
+        );
         assert_eq!(syscalls[0]["names"], serde_json::json!(["personality"]));
         assert_eq!(syscalls[0]["action"], "SCMP_ACT_NOTIFY");
         assert_eq!(
@@ -4533,11 +4961,14 @@ mod tests {
         let (mut ws, _resp) = tokio_tungstenite::connect_async(ws_url)
             .await
             .expect("connect to attach WS endpoint");
-        let ready_msg = tokio::time::timeout(Duration::from_secs(10), futures_util::StreamExt::next(&mut ws))
-            .await
-            .expect("timed out waiting for the attach session's Ready acknowledgment")
-            .expect("attach WS stream ended before sending Ready")
-            .expect("reading the attach WS Ready message");
+        let ready_msg = tokio::time::timeout(
+            Duration::from_secs(10),
+            futures_util::StreamExt::next(&mut ws),
+        )
+        .await
+        .expect("timed out waiting for the attach session's Ready acknowledgment")
+        .expect("attach WS stream ended before sending Ready")
+        .expect("reading the attach WS Ready message");
         assert_eq!(
             ready_msg,
             tokio_tungstenite::tungstenite::Message::Text(api::attach::ATTACH_READY_TEXT.into()),
@@ -4565,12 +4996,16 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // ---- confirm the real violation reached the event bus, via this
         // test's own /events subscriber (same helper Task 16's own
         // capstone test uses) ----
-        let violation = collect_seccomp_violation_event(&mut events_body, &id, Duration::from_secs(20)).await;
+        let violation =
+            collect_seccomp_violation_event(&mut events_body, &id, Duration::from_secs(20)).await;
         assert_eq!(violation["syscall"], "personality");
 
         // ---- the real assertion for THIS task: the SAME real violation
@@ -4581,10 +5016,17 @@ mod tests {
         // independently, with no ordering guarantee between them. ----
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         let seccomp_parsed = loop {
-            let (status, body) = call_router(app.clone(), "GET", format!("/containers/{id}/seccomp")).await;
+            let (status, body) =
+                call_router(app.clone(), "GET", format!("/containers/{id}/seccomp")).await;
             assert_eq!(status, axum::http::StatusCode::OK);
-            let parsed: serde_json::Value = serde_json::from_slice(&body).expect("parse seccomp JSON");
-            if parsed["violations"].as_array().unwrap().iter().any(|v| v == "personality") {
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&body).expect("parse seccomp JSON");
+            if parsed["violations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "personality")
+            {
                 break parsed;
             }
             assert!(
@@ -4593,7 +5035,10 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(50)).await;
         };
-        assert_eq!(seccomp_parsed["violations"], serde_json::json!(["personality"]));
+        assert_eq!(
+            seccomp_parsed["violations"],
+            serde_json::json!(["personality"])
+        );
 
         // ---- cleanup: `DELETE ?force=true`, not just `stop` — force-
         // delete also destroys this test's own real cgroup
@@ -4602,8 +5047,12 @@ mod tests {
         // capstone test (which this test's setup otherwise mirrors) only
         // calls `stop`, which leaks exactly this container's cgroup; this
         // test does not repeat that gap. ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4691,7 +5140,9 @@ mod tests {
             .method("POST")
             .uri("/containers")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&create_body).unwrap(),
+            ))
             .unwrap();
         let create_response = tower::ServiceExt::oneshot(app.clone(), create_request)
             .await
@@ -4712,11 +5163,15 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
         let shim_guard = ShimGuard(id.clone());
-        let artifacts_guard = ContainerArtifactsGuard { run_dir: run_dir.path().to_path_buf(), id: id.clone() };
+        let artifacts_guard = ContainerArtifactsGuard {
+            run_dir: run_dir.path().to_path_buf(),
+            id: id.clone(),
+        };
 
         // Before the container has ever run, this id genuinely has no key
         // in the log yet.
@@ -4733,11 +5188,14 @@ mod tests {
         let (mut ws, _resp) = tokio_tungstenite::connect_async(ws_url)
             .await
             .expect("connect to attach WS endpoint");
-        let ready_msg = tokio::time::timeout(Duration::from_secs(10), futures_util::StreamExt::next(&mut ws))
-            .await
-            .expect("timed out waiting for the attach session's Ready acknowledgment")
-            .expect("attach WS stream ended before sending Ready")
-            .expect("reading the attach WS Ready message");
+        let ready_msg = tokio::time::timeout(
+            Duration::from_secs(10),
+            futures_util::StreamExt::next(&mut ws),
+        )
+        .await
+        .expect("timed out waiting for the attach session's Ready acknowledgment")
+        .expect("attach WS stream ended before sending Ready")
+        .expect("reading the attach WS Ready message");
         assert_eq!(
             ready_msg,
             tokio_tungstenite::tungstenite::Message::Text(api::attach::ATTACH_READY_TEXT.into()),
@@ -4765,10 +5223,14 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // ---- confirm the real violation reached the event bus ----
-        let violation = collect_seccomp_violation_event(&mut events_body, &id, Duration::from_secs(20)).await;
+        let violation =
+            collect_seccomp_violation_event(&mut events_body, &id, Duration::from_secs(20)).await;
         assert_eq!(violation["syscall"], "personality");
 
         // ---- confirm this daemon's own SeccompLog genuinely has a live
@@ -4789,8 +5251,12 @@ mod tests {
         // ---- the real assertion for this fix: `DELETE ?force=true` must
         // prune the outer map's key for this id, not just the registry
         // entry ----
-        let (delete_status, delete_body) =
-            call_router(app.clone(), "DELETE", format!("/containers/{id}?force=true")).await;
+        let (delete_status, delete_body) = call_router(
+            app.clone(),
+            "DELETE",
+            format!("/containers/{id}?force=true"),
+        )
+        .await;
         assert_eq!(
             delete_status,
             axum::http::StatusCode::OK,
@@ -4842,14 +5308,16 @@ mod tests {
         });
         let app = build_router(app_state);
 
-        let (status, body) = call_router(app.clone(), "GET", "/system/namespaces".to_string()).await;
+        let (status, body) =
+            call_router(app.clone(), "GET", "/system/namespaces".to_string()).await;
         assert_eq!(
             status,
             axum::http::StatusCode::OK,
             "system namespaces endpoint failed: {}",
             String::from_utf8_lossy(&body)
         );
-        let parsed: serde_json::Value = serde_json::from_slice(&body).expect("parse system namespaces JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&body).expect("parse system namespaces JSON");
         let processes = parsed["processes"].as_object().expect("processes object");
 
         let own_pid = std::process::id();
@@ -4861,8 +5329,13 @@ mod tests {
             )
         });
 
-        let real_pid_ns_inode = std::fs::metadata("/proc/self/ns/pid").expect("stat /proc/self/ns/pid").ino();
-        let reported = own_entry.get("pid").and_then(|v| v.as_u64()).expect("own entry has a pid namespace inode");
+        let real_pid_ns_inode = std::fs::metadata("/proc/self/ns/pid")
+            .expect("stat /proc/self/ns/pid")
+            .ino();
+        let reported = own_entry
+            .get("pid")
+            .and_then(|v| v.as_u64())
+            .expect("own entry has a pid namespace inode");
         assert_eq!(
             reported, real_pid_ns_inode,
             "reported pid-namespace inode for this test's own real pid must match /proc/self/ns/pid's \
@@ -4905,7 +5378,13 @@ mod tests {
     /// test already proves) to point a real spawned `kestreld` subprocess
     /// at this test's own tempdir `run_dir`/`data_dir`, a tempdir-local
     /// unix socket, and a real, free TCP port.
-    fn write_daemon_config(config_path: &Path, socket_path: &Path, http_addr: &str, run_dir: &Path, data_dir: &Path) {
+    fn write_daemon_config(
+        config_path: &Path,
+        socket_path: &Path,
+        http_addr: &str,
+        run_dir: &Path,
+        data_dir: &Path,
+    ) {
         let toml = format!(
             "[daemon]\n\
              socket = {socket_path:?}\n\
@@ -4928,7 +5407,12 @@ mod tests {
     /// inspectable after the fact, and so an unbounded pipe buffer can never
     /// stall the child if this test doesn't drain it). Returns the child
     /// handle and its real OS pid.
-    fn spawn_real_kestreld(kestreld_bin: &Path, config_path: &Path, log_dir: &Path, log_tag: &str) -> (tokio::process::Child, i32) {
+    fn spawn_real_kestreld(
+        kestreld_bin: &Path,
+        config_path: &Path,
+        log_dir: &Path,
+        log_tag: &str,
+    ) -> (tokio::process::Child, i32) {
         let stdout_log = std::fs::File::create(log_dir.join(format!("{log_tag}.stdout.log")))
             .expect("create kestreld stdout log");
         let stderr_log = std::fs::File::create(log_dir.join(format!("{log_tag}.stderr.log")))
@@ -4939,8 +5423,15 @@ mod tests {
             .stdout(std::process::Stdio::from(stdout_log))
             .stderr(std::process::Stdio::from(stderr_log))
             .spawn()
-            .unwrap_or_else(|e| panic!("spawn real kestreld subprocess ({}): {e}", kestreld_bin.display()));
-        let pid = child.id().expect("just-spawned kestreld child has a real pid") as i32;
+            .unwrap_or_else(|e| {
+                panic!(
+                    "spawn real kestreld subprocess ({}): {e}",
+                    kestreld_bin.display()
+                )
+            });
+        let pid = child
+            .id()
+            .expect("just-spawned kestreld child has a real pid") as i32;
         (child, pid)
     }
 
@@ -4968,8 +5459,10 @@ mod tests {
             let state_path = self.run_dir.join(&self.id).join("state.json");
             if let Ok(state) = kestrel_oci::state::State::read(&state_path) {
                 if let Some(pid) = state.pid {
-                    let _ =
-                        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL);
+                    let _ = nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(pid),
+                        nix::sys::signal::Signal::SIGKILL,
+                    );
                 }
             }
             let _ = std::process::Command::new("pkill")
@@ -5028,7 +5521,13 @@ mod tests {
         let port = find_free_tcp_port();
         let http_addr = format!("127.0.0.1:{port}");
         let config_path = scratch_dir.path().join("config.toml");
-        write_daemon_config(&config_path, &socket_path, &http_addr, run_dir.path(), &data_dir);
+        write_daemon_config(
+            &config_path,
+            &socket_path,
+            &http_addr,
+            run_dir.path(),
+            &data_dir,
+        );
 
         let (mut daemon, daemon_pid) =
             spawn_real_kestreld(&kestreld_bin, &config_path, scratch_dir.path(), "kestreld");
@@ -5064,8 +5563,14 @@ mod tests {
             "unexpected create response: {}",
             create_resp.text().await.unwrap_or_default()
         );
-        let created: serde_json::Value = create_resp.json().await.expect("parse create response JSON");
-        let id = created["id"].as_str().expect("response has a real id").to_string();
+        let created: serde_json::Value = create_resp
+            .json()
+            .await
+            .expect("parse create response JSON");
+        let id = created["id"]
+            .as_str()
+            .expect("response has a real id")
+            .to_string();
         assert!(!id.is_empty());
         let guard = RealContainerGuard {
             run_dir: run_dir.path().to_path_buf(),
@@ -5073,7 +5578,8 @@ mod tests {
         };
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created_state = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created_state =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         assert_eq!(created_state.status, kestrel_oci::state::Status::Created);
         let created_pid = created_state.pid;
 
@@ -5101,10 +5607,13 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running && s.pid != created_pid)
         })
         .await
-        .unwrap_or_else(|| panic!("container {id} never reached Running with a resolved entrypoint pid"));
+        .unwrap_or_else(|| {
+            panic!("container {id} never reached Running with a resolved entrypoint pid")
+        });
         let entrypoint_pid = resolved.pid.expect("a Running state always carries a pid");
 
-        let cmdline_before = std::fs::read_to_string(format!("/proc/{entrypoint_pid}/cmdline")).unwrap_or_default();
+        let cmdline_before =
+            std::fs::read_to_string(format!("/proc/{entrypoint_pid}/cmdline")).unwrap_or_default();
         assert!(
             cmdline_before.contains("fixture"),
             "resolved pid {entrypoint_pid} does not look like the real /fixture entrypoint \
@@ -5114,8 +5623,11 @@ mod tests {
         // ---- the real test: SIGTERM to kestreld's OWN pid, bounded wait
         // for its own exit ----
         let shutdown_start = std::time::Instant::now();
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(daemon_pid), nix::sys::signal::Signal::SIGTERM)
-            .expect("send SIGTERM to the real kestreld process");
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(daemon_pid),
+            nix::sys::signal::Signal::SIGTERM,
+        )
+        .expect("send SIGTERM to the real kestreld process");
 
         let wait_result = tokio::time::timeout(Duration::from_secs(10), daemon.wait()).await;
         let elapsed = shutdown_start.elapsed();
@@ -5141,14 +5653,16 @@ mod tests {
         // real `kill(pid, 0)` liveness probe against the real pid — never
         // by asking the now-dead daemon (design doc §10: containers are not
         // children of kestreld, so there is nothing left to ask it) ----
-        let still_alive = nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_ok();
+        let still_alive =
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_ok();
         assert!(
             still_alive,
             "container entrypoint (pid {entrypoint_pid}) should still be alive after kestreld's own \
              SIGTERM-triggered exit, but it is not — this is exactly the property the kestrel-shim \
              architecture (design doc §2/§10) exists to guarantee"
         );
-        let cmdline_after = std::fs::read_to_string(format!("/proc/{entrypoint_pid}/cmdline")).unwrap_or_default();
+        let cmdline_after =
+            std::fs::read_to_string(format!("/proc/{entrypoint_pid}/cmdline")).unwrap_or_default();
         assert!(
             cmdline_after.contains("fixture"),
             "pid {entrypoint_pid} exists after kestreld's death but no longer looks like the real \
@@ -5164,10 +5678,20 @@ mod tests {
         let http_addr2 = format!("127.0.0.1:{port2}");
         let socket_path2 = run_dir.path().join("kestreld2.sock");
         let config_path2 = scratch_dir.path().join("config2.toml");
-        write_daemon_config(&config_path2, &socket_path2, &http_addr2, run_dir.path(), &data_dir);
+        write_daemon_config(
+            &config_path2,
+            &socket_path2,
+            &http_addr2,
+            run_dir.path(),
+            &data_dir,
+        );
 
-        let (mut daemon2, daemon2_pid) =
-            spawn_real_kestreld(&kestreld_bin, &config_path2, scratch_dir.path(), "kestreld2");
+        let (mut daemon2, daemon2_pid) = spawn_real_kestreld(
+            &kestreld_bin,
+            &config_path2,
+            scratch_dir.path(),
+            "kestreld2",
+        );
 
         let socket2_ready = poll_until(Duration::from_secs(20), || {
             std::os::unix::net::UnixStream::connect(&socket_path2).ok()
@@ -5220,12 +5744,16 @@ mod tests {
 
         // Shut the cleanup daemon down too, best-effort — not the subject
         // of this test, just good hygiene so it doesn't linger.
-        let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(daemon2_pid), nix::sys::signal::Signal::SIGTERM);
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(daemon2_pid),
+            nix::sys::signal::Signal::SIGTERM,
+        );
         let _ = tokio::time::timeout(Duration::from_secs(10), daemon2.wait()).await;
 
         // Final liveness check: the real entrypoint must be gone now that
         // it has gone through a real stop+delete.
-        let gone = nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_err();
+        let gone =
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(entrypoint_pid), None).is_err();
         assert!(
             gone,
             "container entrypoint (pid {entrypoint_pid}) should be gone after a real stop+delete via \

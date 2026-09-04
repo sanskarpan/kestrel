@@ -16,7 +16,10 @@ async fn test_fetch_token_sends_service_and_scope_and_parses_response() {
         .and(path("/token"))
         .and(query_param("service", "registry.example.com"))
         .and(query_param("scope", "repository:foo:pull"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "token": "test-token-123" })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "token": "test-token-123" })),
+        )
         .mount(&server)
         .await;
 
@@ -35,12 +38,19 @@ async fn test_fetch_token_accepts_access_token_field_too() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "access_token": "alt-field-token" })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "access_token": "alt-field-token" })),
+        )
         .mount(&server)
         .await;
 
     let client = reqwest::Client::new();
-    let challenge = BearerChallenge { realm: format!("{}/token", server.uri()), service: None, scope: None };
+    let challenge = BearerChallenge {
+        realm: format!("{}/token", server.uri()),
+        service: None,
+        scope: None,
+    };
     let token = fetch_token(&client, &challenge).await.unwrap();
     assert_eq!(token, "alt-field-token");
 }
@@ -62,7 +72,8 @@ fn test_reference() -> kestrel_image::reference::ImageReference {
 #[tokio::test]
 async fn test_fetch_manifest_bytes_sends_accept_header_and_returns_bytes_digest_and_media_type() {
     let server = MockServer::start().await;
-    let body = br#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}"#.to_vec();
+    let body =
+        br#"{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}"#.to_vec();
     Mock::given(method("GET"))
         .and(path("/v2/myrepo/myimage/manifests/latest"))
         // `wiremock`'s `header()` matcher splits the actual header value on
@@ -82,10 +93,17 @@ async fn test_fetch_manifest_bytes_sends_accept_header_and_returns_bytes_digest_
         .await;
 
     let client = RegistryClient::with_base_url(server.uri()).unwrap();
-    let (bytes, digest, media_type) = client.fetch_manifest_bytes(&test_reference()).await.unwrap();
+    let (bytes, digest, media_type) = client
+        .fetch_manifest_bytes(&test_reference())
+        .await
+        .unwrap();
 
     assert_eq!(bytes, body);
-    assert_eq!(digest, Digest::of_bytes(&body), "digest must be computed locally from the body, not trusted from a header");
+    assert_eq!(
+        digest,
+        Digest::of_bytes(&body),
+        "digest must be computed locally from the body, not trusted from a header"
+    );
     assert_eq!(media_type, "application/vnd.oci.image.manifest.v1+json");
 }
 
@@ -96,34 +114,54 @@ async fn test_manifest_fetch_retries_once_after_401_then_succeeds_with_token() {
 
     Mock::given(method("GET"))
         .and(path("/token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "token": "retried-token" })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "token": "retried-token" })),
+        )
         .mount(&server)
         .await;
 
-    let www_authenticate = format!(r#"Bearer realm="{}/token",service="test-registry""#, server.uri());
+    let www_authenticate = format!(
+        r#"Bearer realm="{}/token",service="test-registry""#,
+        server.uri()
+    );
     let manifest_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/v2/myrepo/myimage/manifests/latest"))
         .respond_with(move |req: &Request| {
-            let authorized =
-                req.headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer retried-token");
+            let authorized = req
+                .headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                == Some("Bearer retried-token");
             if authorized {
                 ResponseTemplate::new(200).set_body_bytes(manifest_body.clone())
             } else {
-                ResponseTemplate::new(401).insert_header("www-authenticate", www_authenticate.as_str())
+                ResponseTemplate::new(401)
+                    .insert_header("www-authenticate", www_authenticate.as_str())
             }
         })
         .mount(&server)
         .await;
 
     let client = RegistryClient::with_base_url(server.uri()).unwrap();
-    let (bytes, _digest, _media_type) = client.fetch_manifest_bytes(&test_reference()).await.unwrap();
-    assert_eq!(bytes, body, "must end up with the manifest body after the auth retry, not the 401");
+    let (bytes, _digest, _media_type) = client
+        .fetch_manifest_bytes(&test_reference())
+        .await
+        .unwrap();
+    assert_eq!(
+        bytes, body,
+        "must end up with the manifest body after the auth retry, not the 401"
+    );
 
     // One unauthenticated manifest request (401), one token request, one
     // authenticated manifest request that succeeds.
     let requests = server.received_requests().await.unwrap();
-    assert_eq!(requests.len(), 3, "expected exactly one auth-retry, not zero or more than one: {requests:#?}");
+    assert_eq!(
+        requests.len(),
+        3,
+        "expected exactly one auth-retry, not zero or more than one: {requests:#?}"
+    );
 }
 
 #[tokio::test]
@@ -142,7 +180,10 @@ async fn test_download_blob_verified_accepts_correct_digest() {
     let tmp = tempfile::tempdir().unwrap();
     let dest = tmp.path().join("blob");
 
-    client.download_blob_verified(&test_reference(), &digest, &dest, None).await.unwrap();
+    client
+        .download_blob_verified(&test_reference(), &digest, &dest, None)
+        .await
+        .unwrap();
     assert_eq!(std::fs::read(&dest).unwrap(), content);
 }
 
@@ -162,13 +203,24 @@ async fn test_download_blob_verified_rejects_digest_mismatch_and_truncates_dest(
     let tmp = tempfile::tempdir().unwrap();
     let dest = tmp.path().join("blob");
 
-    let err = client.download_blob_verified(&test_reference(), &expected_digest, &dest, None).await.unwrap_err();
-    assert!(err.to_string().contains("digest mismatch"), "unexpected error: {err}");
-    assert_eq!(std::fs::read(&dest).unwrap().len(), 0, "dest must be truncated back to empty on mismatch, not left holding corrupt bytes");
+    let err = client
+        .download_blob_verified(&test_reference(), &expected_digest, &dest, None)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("digest mismatch"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(
+        std::fs::read(&dest).unwrap().len(),
+        0,
+        "dest must be truncated back to empty on mismatch, not left holding corrupt bytes"
+    );
 }
 
 #[tokio::test]
-async fn test_download_blob_verified_resume_sends_range_header_and_verifies_the_whole_reassembled_file() {
+async fn test_download_blob_verified_resume_sends_range_header_and_verifies_the_whole_reassembled_file(
+) {
     let server = MockServer::start().await;
     let full_content = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec();
     let digest = Digest::of_bytes(&full_content);
@@ -189,14 +241,24 @@ async fn test_download_blob_verified_resume_sends_range_header_and_verifies_the_
     // `split_at` bytes.
     std::fs::write(&dest, already_have).unwrap();
 
-    client.download_blob_verified(&test_reference(), &digest, &dest, Some(split_at as u64)).await.unwrap();
+    client
+        .download_blob_verified(&test_reference(), &digest, &dest, Some(split_at as u64))
+        .await
+        .unwrap();
 
-    assert_eq!(std::fs::read(&dest).unwrap(), full_content, "resume must APPEND to the existing bytes, reassembling the full original content");
+    assert_eq!(
+        std::fs::read(&dest).unwrap(),
+        full_content,
+        "resume must APPEND to the existing bytes, reassembling the full original content"
+    );
 
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(
-        requests[0].headers.get("range").and_then(|v| v.to_str().ok()),
+        requests[0]
+            .headers
+            .get("range")
+            .and_then(|v| v.to_str().ok()),
         Some(format!("bytes={split_at}-").as_str()),
         "the Range header must actually be sent on a resumed request"
     );
@@ -229,10 +291,19 @@ async fn test_download_blob_verified_resume_catches_corruption_in_the_previously
     corrupted_prefix[0] ^= 0xFF; // flip a byte in what "the prior attempt" wrote
     std::fs::write(&dest, &corrupted_prefix).unwrap();
 
-    let err =
-        client.download_blob_verified(&test_reference(), &digest, &dest, Some(split_at as u64)).await.unwrap_err();
-    assert!(err.to_string().contains("digest mismatch"), "must catch corruption in the pre-resume portion, not just verify the resumed tail: {err}");
-    assert_eq!(std::fs::read(&dest).unwrap().len(), 0, "must truncate the corrupt assembled file rather than leave it looking complete");
+    let err = client
+        .download_blob_verified(&test_reference(), &digest, &dest, Some(split_at as u64))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("digest mismatch"),
+        "must catch corruption in the pre-resume portion, not just verify the resumed tail: {err}"
+    );
+    assert_eq!(
+        std::fs::read(&dest).unwrap().len(),
+        0,
+        "must truncate the corrupt assembled file rather than leave it looking complete"
+    );
 }
 
 #[tokio::test]
@@ -261,7 +332,10 @@ async fn test_download_blob_verified_retries_503_twice_then_succeeds() {
     let tmp = tempfile::tempdir().unwrap();
     let dest = tmp.path().join("blob");
 
-    client.download_blob_verified(&test_reference(), &digest, &dest, None).await.unwrap();
+    client
+        .download_blob_verified(&test_reference(), &digest, &dest, None)
+        .await
+        .unwrap();
 
     assert_eq!(std::fs::read(&dest).unwrap(), content);
     assert_eq!(calls.load(Ordering::SeqCst), 3, "must retry exactly twice (3 total requests) before succeeding, not give up early or retry forever");
@@ -287,7 +361,13 @@ async fn test_download_blob_verified_does_not_retry_a_404() {
     let tmp = tempfile::tempdir().unwrap();
     let dest = tmp.path().join("blob");
 
-    let result = client.download_blob_verified(&test_reference(), &digest, &dest, None).await;
+    let result = client
+        .download_blob_verified(&test_reference(), &digest, &dest, None)
+        .await;
     assert!(result.is_err());
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "a permanent client error like 404 must not be retried");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a permanent client error like 404 must not be retried"
+    );
 }

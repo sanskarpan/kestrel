@@ -102,15 +102,26 @@ fn test_pull_mount_pivot_exec_real_alpine_true() {
     // it anyway".
     let chain_ids = {
         let rt = tokio::runtime::Runtime::new().expect("build tokio runtime");
-        let result = rt.block_on(pull_image(&reference, &store, &layer_store, false, |_progress| {}));
+        let result = rt.block_on(pull_image(
+            &reference,
+            &store,
+            &layer_store,
+            false,
+            |_progress| {},
+        ));
         rt.shutdown_background();
         result.expect("pull_image against real Docker Hub")
     };
-    assert!(!chain_ids.is_empty(), "pull must yield at least one chain-id");
+    assert!(
+        !chain_ids.is_empty(),
+        "pull must yield at least one chain-id"
+    );
 
     common::run_in_fresh_mount_ns(move || {
         let snapshotter = Snapshotter::new(data_dir.clone(), false);
-        let snap = snapshotter.prepare_snapshot("c-pull-e2e", &chain_ids).expect("prepare_snapshot");
+        let snap = snapshotter
+            .prepare_snapshot("c-pull-e2e", &chain_ids)
+            .expect("prepare_snapshot");
         mount_overlay(&data_dir, &snap, false, false, false).expect("mount_overlay");
 
         // Confirm the real exec target actually exists in the real,

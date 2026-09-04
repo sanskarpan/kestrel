@@ -10,8 +10,9 @@ use std::net::Ipv4Addr;
 
 use ipnetwork::Ipv4Network;
 use kestrel_net::nat::{
-    dnat_rule_spec, forward_established_rule_spec, forward_from_bridge_rule_spec, forward_inter_bridge_rule_spec, hairpin_masquerade_rule_spec,
-    masquerade_rule_spec, FORWARD_CHAIN, POSTROUTING_CHAIN, PREROUTING_CHAIN,
+    dnat_rule_spec, forward_established_rule_spec, forward_from_bridge_rule_spec,
+    forward_inter_bridge_rule_spec, hairpin_masquerade_rule_spec, masquerade_rule_spec,
+    FORWARD_CHAIN, POSTROUTING_CHAIN, PREROUTING_CHAIN,
 };
 
 #[test]

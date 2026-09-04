@@ -13,9 +13,19 @@ use crate::snapshot::Snapshot;
 /// deep image doesn't blow past that limit. `lowerdir` is colon-separated,
 /// RIGHTMOST entry is the BOTTOM layer — `lower_links` is bottom-to-top
 /// (matching image-manifest order), so it must be reversed here.
-pub fn build_overlay_opts(snap: &Snapshot, rootless: bool, metacopy: bool, redirect_dir: bool) -> Result<String> {
+pub fn build_overlay_opts(
+    snap: &Snapshot,
+    rootless: bool,
+    metacopy: bool,
+    redirect_dir: bool,
+) -> Result<String> {
     anyhow::ensure!(!snap.lower_links.is_empty(), "snapshot has no lower layers");
-    let lowers: Vec<String> = snap.lower_links.iter().rev().map(|l| format!("l/{l}")).collect();
+    let lowers: Vec<String> = snap
+        .lower_links
+        .iter()
+        .rev()
+        .map(|l| format!("l/{l}"))
+        .collect();
     let mut opts = format!(
         "lowerdir={},upperdir={},workdir={}",
         lowers.join(":"),
@@ -103,8 +113,12 @@ pub fn mount_overlay(
     let opts = build_overlay_opts(snap, rootless, metacopy, redirect_dir)?;
     clear_dir(&snap.work)?;
     let _guard = ChdirGuard::enter(data_dir)?;
-    mount(Some("overlay"), &snap.merged, Some("overlay"), MsFlags::empty(), Some(opts.as_str()))
-        .with_context(|| format!("mounting overlay at {} (opts={opts})", snap.merged.display()))?;
+    mount(Some("overlay"), &snap.merged, Some("overlay"), MsFlags::empty(), Some(opts.as_str())).with_context(|| {
+        format!(
+            "syscall mount(\"overlay\", target={}, fstype=\"overlay\", opts=\"{opts}\"): failed; hint: lowerdir must be colon-joined l/<short> links, upperdir/workdir must exist and workdir empty, kernel must support overlay (modprobe overlay), check dmesg for overlay errors",
+            snap.merged.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -112,8 +126,12 @@ pub fn mount_overlay(
 /// still inside the container's mount namespace may be holding the merged
 /// dir busy at the moment a parent process asks to unmount it.
 pub fn unmount_overlay(merged: &Path) -> Result<()> {
-    umount2(merged, MntFlags::MNT_DETACH)
-        .with_context(|| format!("unmounting overlay at {}", merged.display()))
+    umount2(merged, MntFlags::MNT_DETACH).with_context(|| {
+        format!(
+            "syscall umount2(target={}, MNT_DETACH) for overlay: failed; hint: target must be a mount point, may already be unmounted or busy (MNT_DETACH should handle busy)",
+            merged.display()
+        )
+    })
 }
 
 #[cfg(test)]
@@ -134,7 +152,10 @@ mod tests {
     fn test_build_overlay_opts_reverses_lower_order() {
         let s = snap(vec!["aaa".into(), "bbb".into(), "ccc".into()]);
         let opts = build_overlay_opts(&s, false, false, false).unwrap();
-        assert!(opts.starts_with("lowerdir=l/ccc:l/bbb:l/aaa,"), "got: {opts}");
+        assert!(
+            opts.starts_with("lowerdir=l/ccc:l/bbb:l/aaa,"),
+            "got: {opts}"
+        );
     }
 
     #[test]

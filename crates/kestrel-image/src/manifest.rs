@@ -72,7 +72,7 @@ pub fn docker_platform_arch(rust_arch: &str) -> &str {
 mod tests {
     use std::str::FromStr;
 
-    use kestrel_oci::image_spec::{Digest, DescriptorBuilder, ImageIndexBuilder, PlatformBuilder};
+    use kestrel_oci::image_spec::{DescriptorBuilder, Digest, ImageIndexBuilder, PlatformBuilder};
 
     use super::*;
 
@@ -93,8 +93,18 @@ mod tests {
 
     #[test]
     fn test_select_platform_matches_exact_os_arch() {
-        let d_amd64 = descriptor_for("linux", "amd64", None, &format!("sha256:{}", "a".repeat(64)));
-        let d_arm64 = descriptor_for("linux", "arm64", None, &format!("sha256:{}", "b".repeat(64)));
+        let d_amd64 = descriptor_for(
+            "linux",
+            "amd64",
+            None,
+            &format!("sha256:{}", "a".repeat(64)),
+        );
+        let d_arm64 = descriptor_for(
+            "linux",
+            "arm64",
+            None,
+            &format!("sha256:{}", "b".repeat(64)),
+        );
         let index = ImageIndexBuilder::default()
             .schema_version(2_u32)
             .manifests(vec![d_amd64.clone(), d_arm64.clone()])
@@ -107,8 +117,17 @@ mod tests {
 
     #[test]
     fn test_select_platform_no_match_errors() {
-        let d = descriptor_for("linux", "amd64", None, &format!("sha256:{}", "c".repeat(64)));
-        let index = ImageIndexBuilder::default().schema_version(2_u32).manifests(vec![d]).build().unwrap();
+        let d = descriptor_for(
+            "linux",
+            "amd64",
+            None,
+            &format!("sha256:{}", "c".repeat(64)),
+        );
+        let index = ImageIndexBuilder::default()
+            .schema_version(2_u32)
+            .manifests(vec![d])
+            .build()
+            .unwrap();
         assert!(select_platform(&index, "windows", "amd64", None).is_err());
     }
 
@@ -116,13 +135,19 @@ mod tests {
     fn test_docker_platform_arch_maps_rust_names_to_oci_names() {
         assert_eq!(docker_platform_arch("aarch64"), "arm64");
         assert_eq!(docker_platform_arch("x86_64"), "amd64");
-        assert_eq!(docker_platform_arch("riscv64"), "riscv64", "unmapped arches pass through unchanged");
+        assert_eq!(
+            docker_platform_arch("riscv64"),
+            "riscv64",
+            "unmapped arches pass through unchanged"
+        );
     }
 
     #[test]
     fn test_is_index_media_type() {
         assert!(is_index_media_type(OCI_INDEX));
         assert!(is_index_media_type(DOCKER_MANIFEST_LIST));
-        assert!(!is_index_media_type("application/vnd.oci.image.manifest.v1+json"));
+        assert!(!is_index_media_type(
+            "application/vnd.oci.image.manifest.v1+json"
+        ));
     }
 }

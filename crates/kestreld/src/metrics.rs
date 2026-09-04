@@ -121,7 +121,11 @@ pub enum MetricsSignal {
     /// observed this container. Never emitted on the FIRST tick a
     /// container is observed (there is no genuine "from" state yet at
     /// that point — just a baseline being recorded).
-    StatusTransition { id: String, from: Status, to: Status },
+    StatusTransition {
+        id: String,
+        from: Status,
+        to: Status,
+    },
     /// `memory.events`' `oom_kill` counter increased since the last
     /// tick. `oom_kill_count` is the current, absolute counter value
     /// (not a delta) — `kestrel_cgroup::stats`' own doc comment on why
@@ -133,7 +137,11 @@ pub enum MetricsSignal {
     /// `check_psi_crossing`). `avg10` is the kernel-computed 10s
     /// exponential average at the moment of the crossing, included for
     /// context/logging, not itself part of the crossing calculation.
-    PsiThreshold { id: String, resource: CgroupResource, avg10: f64 },
+    PsiThreshold {
+        id: String,
+        resource: CgroupResource,
+        avg10: f64,
+    },
     /// `cpu.stat`'s `nr_throttled` counter increased since the last
     /// tick — a new CFS throttling period occurred.
     CgroupThrottle { id: String, nr_throttled: u64 },
@@ -399,7 +407,14 @@ async fn sample_tick(
             guard.insert(id.clone(), current_status)
         };
         if let Some((from, to)) = record_status_and_detect_transition(prev_status, current_status) {
-            publish(tx, MetricsSignal::StatusTransition { id: id.clone(), from, to });
+            publish(
+                tx,
+                MetricsSignal::StatusTransition {
+                    id: id.clone(),
+                    from,
+                    to,
+                },
+            );
         }
 
         check_oom(cgroups_root, id, state, tx).await;
@@ -436,7 +451,12 @@ async fn sample_tick(
 /// regardless of current status — see this module's top-level doc
 /// comment point 2 for why. Best-effort: a cgroup that doesn't exist
 /// (yet, or anymore) just means nothing to report this tick.
-async fn check_oom(cgroups_root: &Path, id: &str, state: &mut SamplerState, tx: &mpsc::Sender<MetricsSignal>) {
+async fn check_oom(
+    cgroups_root: &Path,
+    id: &str,
+    state: &mut SamplerState,
+    tx: &mpsc::Sender<MetricsSignal>,
+) {
     let Ok(cgroup) = CgroupManager::new(cgroups_root.to_path_buf(), id) else {
         return;
     };
@@ -446,7 +466,13 @@ async fn check_oom(cgroups_root: &Path, id: &str, state: &mut SamplerState, tx: 
     };
     if let Some(prev) = state.last_oom_count.insert(id.to_string(), count) {
         if count > prev {
-            publish(tx, MetricsSignal::Oom { id: id.to_string(), oom_kill_count: count });
+            publish(
+                tx,
+                MetricsSignal::Oom {
+                    id: id.to_string(),
+                    oom_kill_count: count,
+                },
+            );
         }
     }
 }
@@ -491,9 +517,18 @@ async fn check_running_cgroup_stats(
 
     match cpu {
         Ok(cpu) => {
-            if let Some(prev) = state.last_nr_throttled.insert(id.to_string(), cpu.nr_throttled) {
+            if let Some(prev) = state
+                .last_nr_throttled
+                .insert(id.to_string(), cpu.nr_throttled)
+            {
                 if cpu.nr_throttled > prev {
-                    publish(tx, MetricsSignal::CgroupThrottle { id: id.to_string(), nr_throttled: cpu.nr_throttled });
+                    publish(
+                        tx,
+                        MetricsSignal::CgroupThrottle {
+                            id: id.to_string(),
+                            nr_throttled: cpu.nr_throttled,
+                        },
+                    );
                 }
             }
         }
@@ -520,9 +555,24 @@ async fn check_running_cgroup_stats(
         (CgroupResource::Io, io_pressure),
     ] {
         let Ok(psi) = result else { continue };
-        let window = state.psi_windows.entry((id.to_string(), resource)).or_default();
-        if check_psi_crossing(window, psi.some.total_us, psi_trigger_stall_us, psi_trigger_window_us) {
-            publish(tx, MetricsSignal::PsiThreshold { id: id.to_string(), resource, avg10: psi.some.avg10 });
+        let window = state
+            .psi_windows
+            .entry((id.to_string(), resource))
+            .or_default();
+        if check_psi_crossing(
+            window,
+            psi.some.total_us,
+            psi_trigger_stall_us,
+            psi_trigger_window_us,
+        ) {
+            publish(
+                tx,
+                MetricsSignal::PsiThreshold {
+                    id: id.to_string(),
+                    resource,
+                    avg10: psi.some.avg10,
+                },
+            );
         }
     }
 }
@@ -545,13 +595,20 @@ async fn check_running_cgroup_stats(
 /// having not been over threshold as of the immediately preceding
 /// call) — matching this task's own "detect PSI-threshold CROSSINGS"
 /// wording, not "report every tick pressure happens to still be high."
-fn check_psi_crossing(window: &mut PsiWindow, total_us: u64, stall_us: u64, window_us: u64) -> bool {
+fn check_psi_crossing(
+    window: &mut PsiWindow,
+    total_us: u64,
+    stall_us: u64,
+    window_us: u64,
+) -> bool {
     let now = Instant::now();
     window.samples.push_back((now, total_us));
 
     let window_dur = Duration::from_micros(window_us);
     while window.samples.len() > 1 {
-        let Some(&(oldest_at, _)) = window.samples.front() else { break };
+        let Some(&(oldest_at, _)) = window.samples.front() else {
+            break;
+        };
         if now.duration_since(oldest_at) > window_dur {
             window.samples.pop_front();
         } else {
@@ -739,7 +796,11 @@ mod tests {
             fixture_path.display()
         );
         std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
-            panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display())
+            panic!(
+                "copy {} to {}: {e}",
+                fixture_path.display(),
+                dest.join("fixture").display()
+            )
         });
         std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755))
             .expect("chmod fixture binary");
@@ -773,14 +834,21 @@ mod tests {
         }
     }
 
-    async fn call_router(app: Router, method: &str, uri: String, body: serde_json::Value) -> (StatusCode, Vec<u8>) {
+    async fn call_router(
+        app: Router,
+        method: &str,
+        uri: String,
+        body: serde_json::Value,
+    ) -> (StatusCode, Vec<u8>) {
         let request = axum::http::Request::builder()
             .method(method)
             .uri(uri)
             .header("content-type", "application/json")
             .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
             .unwrap();
-        let response = tower::ServiceExt::oneshot(app, request).await.expect("router oneshot");
+        let response = tower::ServiceExt::oneshot(app, request)
+            .await
+            .expect("router oneshot");
         let status = response.status();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -866,7 +934,14 @@ mod tests {
         });
         let app = build_router(app_state);
 
-        Harness { app, registry, run_dir, data_dir, _mount_guard: mount_guard, _rootfs_dir: rootfs_dir }
+        Harness {
+            app,
+            registry,
+            run_dir,
+            data_dir,
+            _mount_guard: mount_guard,
+            _rootfs_dir: rootfs_dir,
+        }
     }
 
     /// Waits (via the sampler's own channel) for the first signal
@@ -909,21 +984,38 @@ mod tests {
             "tty": false,
             "cmd": ["/fixture", "sleep", "60"],
         });
-        let (status, resp_body) = call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
-        assert_eq!(status, StatusCode::CREATED, "create failed: {}", String::from_utf8_lossy(&resp_body));
+        let (status, resp_body) =
+            call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
+        assert_eq!(
+            status,
+            StatusCode::CREATED,
+            "create failed: {}",
+            String::from_utf8_lossy(&resp_body)
+        );
         let id = serde_json::from_slice::<serde_json::Value>(&resp_body).unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
 
         let state_path = h.run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
-        let (start_status, start_body) =
-            call_router(h.app.clone(), "POST", format!("/containers/{id}/start"), serde_json::json!({})).await;
-        assert_eq!(start_status, StatusCode::OK, "start failed: {}", String::from_utf8_lossy(&start_body));
+        let (start_status, start_body) = call_router(
+            h.app.clone(),
+            "POST",
+            format!("/containers/{id}/start"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(
+            start_status,
+            StatusCode::OK,
+            "start failed: {}",
+            String::from_utf8_lossy(&start_body)
+        );
 
         let running = poll_until(Duration::from_secs(10), || {
             kestrel_oci::state::State::read(&state_path)
@@ -931,14 +1023,19 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // As in main.rs's own Task 9 tests: state.json's pid can still be
         // kestrel-init's own for a short window even after Running is
         // observed — poll for it to actually change to the real
         // entrypoint pid before signaling it.
         let real_pid_state = poll_until(Duration::from_secs(10), || {
-            kestrel_oci::state::State::read(&state_path).ok().filter(|s| s.pid != created.pid)
+            kestrel_oci::state::State::read(&state_path)
+                .ok()
+                .filter(|s| s.pid != created.pid)
         })
         .await
         .expect("state.json's pid was never updated to the entrypoint's real pid");
@@ -955,7 +1052,7 @@ mod tests {
             Duration::from_millis(100),
             150_000,
             1_000_000,
-        new_last_status_map(),
+            new_last_status_map(),
         );
         // Let the sampler observe the Running baseline at least once
         // before the external kill, so the later Stopped observation is
@@ -1015,15 +1112,22 @@ mod tests {
             "cmd": ["/fixture", "alloc-hold", "128"], // far past the 16 MiB limit
             "memory_bytes": MEMORY_LIMIT_BYTES,
         });
-        let (status, resp_body) = call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
-        assert_eq!(status, StatusCode::CREATED, "create failed: {}", String::from_utf8_lossy(&resp_body));
+        let (status, resp_body) =
+            call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
+        assert_eq!(
+            status,
+            StatusCode::CREATED,
+            "create failed: {}",
+            String::from_utf8_lossy(&resp_body)
+        );
         let id = serde_json::from_slice::<serde_json::Value>(&resp_body).unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
 
         let state_path = h.run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
         // `memory.max` is already genuinely enforced at this point — real
@@ -1039,16 +1143,28 @@ mod tests {
             Duration::from_millis(100),
             150_000,
             1_000_000,
-        new_last_status_map(),
+            new_last_status_map(),
         );
 
-        let (start_status, start_body) =
-            call_router(h.app.clone(), "POST", format!("/containers/{id}/start"), serde_json::json!({})).await;
-        assert_eq!(start_status, StatusCode::OK, "start failed: {}", String::from_utf8_lossy(&start_body));
+        let (start_status, start_body) = call_router(
+            h.app.clone(),
+            "POST",
+            format!("/containers/{id}/start"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(
+            start_status,
+            StatusCode::OK,
+            "start failed: {}",
+            String::from_utf8_lossy(&start_body)
+        );
 
-        let signal = wait_for_signal(&mut rx, Duration::from_secs(20), |sig| {
-            matches!(sig, MetricsSignal::Oom { id: sig_id, .. } if sig_id == &id)
-        })
+        let signal = wait_for_signal(
+            &mut rx,
+            Duration::from_secs(20),
+            |sig| matches!(sig, MetricsSignal::Oom { id: sig_id, .. } if sig_id == &id),
+        )
         .await;
         assert!(signal.is_some(), "expected an Oom signal within 20s of starting a container that allocates far past its memory.max, none arrived");
 
@@ -1079,15 +1195,22 @@ mod tests {
             "cmd": ["/fixture", "alloc-hold", "128"],
             "memory_bytes": MEMORY_LIMIT_BYTES,
         });
-        let (status, resp_body) = call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
-        assert_eq!(status, StatusCode::CREATED, "create failed: {}", String::from_utf8_lossy(&resp_body));
+        let (status, resp_body) =
+            call_router(h.app.clone(), "POST", "/containers".to_string(), body).await;
+        assert_eq!(
+            status,
+            StatusCode::CREATED,
+            "create failed: {}",
+            String::from_utf8_lossy(&resp_body)
+        );
         let id = serde_json::from_slice::<serde_json::Value>(&resp_body).unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
 
         let state_path = h.run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
         // `memory.max` is already genuinely enforced at this point via the
@@ -1115,12 +1238,22 @@ mod tests {
             Duration::from_millis(100),
             200,
             200_000,
-        new_last_status_map(),
+            new_last_status_map(),
         );
 
-        let (start_status, start_body) =
-            call_router(h.app.clone(), "POST", format!("/containers/{id}/start"), serde_json::json!({})).await;
-        assert_eq!(start_status, StatusCode::OK, "start failed: {}", String::from_utf8_lossy(&start_body));
+        let (start_status, start_body) = call_router(
+            h.app.clone(),
+            "POST",
+            format!("/containers/{id}/start"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(
+            start_status,
+            StatusCode::OK,
+            "start failed: {}",
+            String::from_utf8_lossy(&start_body)
+        );
 
         let signal = wait_for_signal(&mut rx, Duration::from_secs(20), |sig| {
             matches!(
@@ -1131,7 +1264,12 @@ mod tests {
         .await;
         if signal.is_none() {
             let cgroup_path = h.data_dir.join("cgroups").join("kestrel").join(&id);
-            for f in ["memory.pressure", "memory.events", "memory.current", "cpu.stat"] {
+            for f in [
+                "memory.pressure",
+                "memory.events",
+                "memory.current",
+                "cpu.stat",
+            ] {
                 let content = std::fs::read_to_string(cgroup_path.join(f))
                     .unwrap_or_else(|e| format!("<error reading {f}: {e}>"));
                 eprintln!("DEBUG {f}:\n{content}");

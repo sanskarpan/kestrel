@@ -1,3 +1,4 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
 use std::collections::VecDeque;
 use std::io::{self, stdout};
 use std::panic;
@@ -16,9 +17,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table, Tabs, Wrap,
-    },
+    widgets::{Block, Borders, Cell, Clear, Gauge, Paragraph, Row, Sparkline, Table, Tabs, Wrap},
     Frame, Terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -52,7 +51,6 @@ struct Theme {
     status_paused: Style,
     header: Style,
     gauge: Style,
-    chip: Style,
 }
 
 impl Theme {
@@ -67,19 +65,24 @@ impl Theme {
                 status_paused: Style::default(),
                 header: Style::default().add_modifier(Modifier::BOLD),
                 gauge: Style::default(),
-                chip: Style::default(),
             };
         }
         Self {
             border: Style::default().fg(Color::DarkGray),
-            selected: Style::default().bg(Color::DarkGray).fg(Color::White).add_modifier(Modifier::BOLD),
-            status_running: Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            selected: Style::default()
+                .bg(Color::DarkGray)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+            status_running: Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
             status_created: Style::default().fg(Color::Yellow),
             status_stopped: Style::default().fg(Color::Red),
             status_paused: Style::default().fg(Color::Magenta),
-            header: Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            header: Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
             gauge: Style::default().fg(Color::Green),
-            chip: Style::default().fg(Color::White).bg(Color::Blue),
         }
     }
     fn status_style(&self, s: &str) -> Style {
@@ -143,6 +146,7 @@ struct LayerEntry {
 struct CopyUpsResponse {
     copy_ups: Vec<CopyUpEntry>,
 }
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct CopyUpEntry {
     path: String,
@@ -151,6 +155,7 @@ struct CopyUpEntry {
     kind: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct CgroupResponse {
     cpu_stat: CpuStatOut,
@@ -162,6 +167,7 @@ struct CgroupResponse {
     memory_max: String,
     pids_max: String,
 }
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct CpuStatOut {
     usage_usec: u64,
@@ -176,11 +182,13 @@ struct PressureResponse {
     memory: PsiOut,
     io: PsiOut,
 }
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct PsiOut {
     some: PsiLineOut,
     full: Option<PsiLineOut>,
 }
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct PsiLineOut {
     avg10: f64,
@@ -214,19 +222,6 @@ struct NetworkInfo {
     published_ports: Vec<(u16, u16)>,
 }
 
-#[derive(Debug, Clone)]
-struct ContainerStats {
-    cpu_percent: f64,
-    mem_current: u64,
-    mem_max: String,
-    pids_current: u64,
-    cpu_history: VecDeque<u64>,
-    mem_history: VecDeque<u64>,
-    psi_cpu_some: f64,
-    psi_mem_some: f64,
-    psi_io_some: f64,
-}
-
 // ---------------------------------------------------------------------------
 // API client (HTTP + optional Unix socket note)
 // ---------------------------------------------------------------------------
@@ -234,12 +229,11 @@ struct ContainerStats {
 #[derive(Clone)]
 struct ApiClient {
     base: String,
-    socket: String,
     client: reqwest::Client,
 }
 
 impl ApiClient {
-    fn new(base: String, socket: String) -> Self {
+    fn new(base: String, _socket: String) -> Self {
         let base = base.trim_end_matches('/').to_string();
         let base = if base.starts_with("http://") || base.starts_with("https://") {
             base
@@ -255,7 +249,7 @@ impl ApiClient {
             .timeout(Duration::from_secs(5))
             .build()
             .expect("reqwest client");
-        Self { base, socket, client }
+        Self { base, client }
     }
 
     fn url(&self, path: &str) -> String {
@@ -264,7 +258,12 @@ impl ApiClient {
 
     async fn list_containers(&self) -> Result<Vec<ContainerView>> {
         let url = self.url("/containers");
-        let resp = self.client.get(&url).send().await.context("GET /containers")?;
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("GET /containers")?;
         if !resp.status().is_success() {
             let s = resp.status();
             let b = resp.text().await.unwrap_or_default();
@@ -278,7 +277,8 @@ impl ApiClient {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(arr) = v.get("containers").and_then(|x| x.as_array()) {
                 let out: Vec<ContainerView> =
-                    serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default();
+                    serde_json::from_value(serde_json::Value::Array(arr.clone()))
+                        .unwrap_or_default();
                 return Ok(out);
             }
             if let Ok(single) = serde_json::from_str::<ContainerView>(&text) {
@@ -294,7 +294,10 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Ok(vec![]);
         }
-        let r: NamespacesResponse = resp.json().await.unwrap_or(NamespacesResponse { namespaces: vec![] });
+        let r: NamespacesResponse = resp
+            .json()
+            .await
+            .unwrap_or(NamespacesResponse { namespaces: vec![] });
         Ok(r.namespaces)
     }
 
@@ -304,7 +307,10 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Ok(vec![]);
         }
-        let r: LayersResponse = resp.json().await.unwrap_or(LayersResponse { layers: vec![] });
+        let r: LayersResponse = resp
+            .json()
+            .await
+            .unwrap_or(LayersResponse { layers: vec![] });
         Ok(r.layers)
     }
 
@@ -314,7 +320,10 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Ok(vec![]);
         }
-        let r: CopyUpsResponse = resp.json().await.unwrap_or(CopyUpsResponse { copy_ups: vec![] });
+        let r: CopyUpsResponse = resp
+            .json()
+            .await
+            .unwrap_or(CopyUpsResponse { copy_ups: vec![] });
         Ok(r.copy_ups)
     }
 
@@ -344,7 +353,10 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Ok(vec![]);
         }
-        let r: MountsResponse = resp.json().await.unwrap_or(MountsResponse { mounts: vec![] });
+        let r: MountsResponse = resp
+            .json()
+            .await
+            .unwrap_or(MountsResponse { mounts: vec![] });
         Ok(r.mounts)
     }
 
@@ -369,7 +381,11 @@ impl ApiClient {
             return Ok(vec![]);
         }
         let text = resp.text().await?;
-        Ok(text.lines().map(|s| s.to_string()).filter(|s| !s.is_empty()).collect())
+        Ok(text
+            .lines()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect())
     }
 
     async fn post_action(&self, id: &str, action: &str) -> Result<()> {
@@ -421,7 +437,14 @@ enum DetailTab {
 }
 impl DetailTab {
     fn all() -> &'static [Self] {
-        &[Self::Stats, Self::Namespaces, Self::Layers, Self::Mounts, Self::Network, Self::Logs]
+        &[
+            Self::Stats,
+            Self::Namespaces,
+            Self::Layers,
+            Self::Mounts,
+            Self::Network,
+            Self::Logs,
+        ]
     }
     fn label(&self) -> &'static str {
         match self {
@@ -456,7 +479,6 @@ struct App {
     confirm_delete: bool,
     status_msg: String,
     status_since: Instant,
-    no_color: bool,
     theme: Theme,
 
     // detail data for selected container
@@ -495,9 +517,10 @@ impl App {
             detail_tab: DetailTab::Stats,
             help_visible: false,
             confirm_delete: false,
-            status_msg: "q quit · ? help · j/k navigate · / filter · Tab tabs · s/S/p/d/e/r actions".to_string(),
+            status_msg:
+                "q quit · ? help · j/k navigate · / filter · Tab tabs · s/S/p/d/e/r actions"
+                    .to_string(),
             status_since: Instant::now(),
-            no_color,
             theme: Theme::new(no_color),
             namespaces: vec![],
             layers: vec![],
@@ -518,11 +541,15 @@ impl App {
     }
 
     fn selected_id(&self) -> Option<String> {
-        self.filtered_indices.get(self.selected).and_then(|i| self.containers.get(*i).map(|c| c.id.clone()))
+        self.filtered_indices
+            .get(self.selected)
+            .and_then(|i| self.containers.get(*i).map(|c| c.id.clone()))
     }
 
     fn selected_container(&self) -> Option<&ContainerView> {
-        self.filtered_indices.get(self.selected).and_then(|i| self.containers.get(*i))
+        self.filtered_indices
+            .get(self.selected)
+            .and_then(|i| self.containers.get(*i))
     }
 
     fn rebuild_filter(&mut self) {
@@ -537,7 +564,11 @@ impl App {
                 } else {
                     c.id.to_lowercase().contains(&q)
                         || c.status.to_lowercase().contains(&q)
-                        || c.bundle.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                        || c.bundle
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
                 }
             })
             .map(|(i, _)| i)
@@ -584,20 +615,26 @@ fn setup_terminal() -> Result<Terminal<ratatui::backend::CrosstermBackend<io::St
     Ok(terminal)
 }
 
-fn restore_terminal(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) -> Result<()> {
+fn restore_terminal(
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+) -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
 }
 
-fn suspend_terminal(_terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) -> Result<()> {
+fn suspend_terminal(
+    _terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+) -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
     Ok(())
 }
 
-fn resume_terminal(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) -> Result<()> {
+fn resume_terminal(
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+) -> Result<()> {
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;
     terminal.clear()?;
@@ -688,7 +725,11 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             ("  -  ".to_string(), "  -   ".to_string())
         };
 
-        let style = if is_selected { app.theme.selected } else { Style::default() };
+        let style = if is_selected {
+            app.theme.selected
+        } else {
+            Style::default()
+        };
         let state_style = app.theme.status_style(&state);
 
         rows.push(
@@ -706,24 +747,34 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let block = Block::default()
-        .title(format!(" Containers ({}/{}) ", app.filtered_indices.len(), app.containers.len()))
+        .title(format!(
+            " Containers ({}/{}) ",
+            app.filtered_indices.len(),
+            app.containers.len()
+        ))
         .borders(Borders::ALL)
         .border_style(app.theme.border)
         .title_alignment(Alignment::Left);
 
     if rows.is_empty() {
-        let p = Paragraph::new("No containers (filter empty or daemon unreachable)\n\nPress ? for help · / to filter")
-            .block(block)
-            .wrap(Wrap { trim: true });
+        let p = Paragraph::new(
+            "No containers (filter empty or daemon unreachable)\n\nPress ? for help · / to filter",
+        )
+        .block(block)
+        .wrap(Wrap { trim: true });
         f.render_widget(p, area);
         return;
     }
 
     let table = Table::new(rows, widths)
         .header(
-            Row::new(header.iter().map(|h| Cell::from(*h).style(app.theme.header)))
-                .height(1)
-                .style(Style::default().add_modifier(Modifier::BOLD)),
+            Row::new(
+                header
+                    .iter()
+                    .map(|h| Cell::from(*h).style(app.theme.header)),
+            )
+            .height(1)
+            .style(Style::default().add_modifier(Modifier::BOLD)),
         )
         .block(block);
     f.render_widget(table, area);
@@ -735,7 +786,9 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|t| {
             let style = if *t == app.detail_tab {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
@@ -750,10 +803,17 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let tabs_widget = Tabs::new(tab_titles)
-        .block(Block::default().borders(Borders::ALL).border_style(app.theme.border).title(format!(
-            " {} ",
-            app.selected_container().map(|c| c.id[..12.min(c.id.len())].to_string()).unwrap_or_else(|| "-".to_string())
-        )))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(app.theme.border)
+                .title(format!(
+                    " {} ",
+                    app.selected_container()
+                        .map(|c| c.id[..12.min(c.id.len())].to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                )),
+        )
         .select(selected_idx)
         .style(Style::default())
         .highlight_style(Style::default().fg(Color::Yellow));
@@ -773,20 +833,34 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
 fn draw_stats_tab(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(6), Constraint::Length(6), Constraint::Min(6)])
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Length(6),
+            Constraint::Min(6),
+        ])
         .split(area);
 
     // CPU sparkline
     let cpu_data: Vec<u64> = app.cpu_hist.iter().copied().collect();
     let cpu_spark = Sparkline::default()
-        .block(Block::default().borders(Borders::ALL).title(" CPU history (usage_usec) ").border_style(app.theme.border))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" CPU history (usage_usec) ")
+                .border_style(app.theme.border),
+        )
         .data(&cpu_data)
         .style(Style::default().fg(Color::Green));
     f.render_widget(cpu_spark, chunks[0]);
 
     let mem_data: Vec<u64> = app.mem_hist.iter().copied().collect();
     let mem_spark = Sparkline::default()
-        .block(Block::default().borders(Borders::ALL).title(" Memory history (bytes) ").border_style(app.theme.border))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Memory history (bytes) ")
+                .border_style(app.theme.border),
+        )
         .data(&mem_data)
         .style(Style::default().fg(Color::Blue));
     f.render_widget(mem_spark, chunks[1]);
@@ -794,12 +868,28 @@ fn draw_stats_tab(f: &mut Frame, app: &App, area: Rect) {
     // PSI gauges
     let psi_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(33), Constraint::Percentage(33), Constraint::Percentage(33)])
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
         .split(chunks[2]);
 
-    let cpu_psi = app.pressure.as_ref().map(|p| p.cpu.some.avg10).unwrap_or(0.0);
-    let mem_psi = app.pressure.as_ref().map(|p| p.memory.some.avg10).unwrap_or(0.0);
-    let io_psi = app.pressure.as_ref().map(|p| p.io.some.avg10).unwrap_or(0.0);
+    let cpu_psi = app
+        .pressure
+        .as_ref()
+        .map(|p| p.cpu.some.avg10)
+        .unwrap_or(0.0);
+    let mem_psi = app
+        .pressure
+        .as_ref()
+        .map(|p| p.memory.some.avg10)
+        .unwrap_or(0.0);
+    let io_psi = app
+        .pressure
+        .as_ref()
+        .map(|p| p.io.some.avg10)
+        .unwrap_or(0.0);
 
     // also show cgroup stats
     let cgroup_info = if let Some(cg) = &app.cgroup {
@@ -818,10 +908,18 @@ fn draw_stats_tab(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // PSI gauges as small blocks with gauge widget
-    for (idx, (label, val)) in [("cpu", cpu_psi), ("memory", mem_psi), ("io", io_psi)].iter().enumerate() {
+    for (idx, (label, val)) in [("cpu", cpu_psi), ("memory", mem_psi), ("io", io_psi)]
+        .iter()
+        .enumerate()
+    {
         let ratio = ((*val).clamp(0.0, 100.0) / 100.0).clamp(0.0, 1.0);
         let g = Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title(format!(" PSI {label} some avg10: {val:.1}% ")).border_style(app.theme.border))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" PSI {label} some avg10: {val:.1}% "))
+                    .border_style(app.theme.border),
+            )
             .gauge_style(app.theme.gauge)
             .percent((ratio * 100.0) as u16)
             .label(format!("{val:.1}%"));
@@ -829,14 +927,25 @@ fn draw_stats_tab(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // overlay cgroup info at bottom of stats area if space
-    let para = Paragraph::new(cgroup_info).block(Block::default().borders(Borders::ALL).title(" cgroup ").border_style(app.theme.border)).wrap(Wrap { trim: true });
+    let para = Paragraph::new(cgroup_info)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" cgroup ")
+                .border_style(app.theme.border),
+        )
+        .wrap(Wrap { trim: true });
     // Render over the gauge area's bottom? Instead render in remaining space if we had it. For now just render gauge; info shown via status
     let _ = para;
 }
 
 fn draw_namespaces_tab(f: &mut Frame, app: &App, area: Rect) {
     let header = ["TYPE", "INODE", "SHARED_WITH"];
-    let widths = [Constraint::Length(10), Constraint::Length(20), Constraint::Min(10)];
+    let widths = [
+        Constraint::Length(10),
+        Constraint::Length(20),
+        Constraint::Min(10),
+    ];
     let rows: Vec<Row> = app
         .namespaces
         .iter()
@@ -847,18 +956,33 @@ fn draw_namespaces_tab(f: &mut Frame, app: &App, area: Rect) {
                 Cell::from(if ns.shared_with.is_empty() {
                     "—".to_string()
                 } else {
-                    format!("{} containers [{}]", ns.shared_with.len(), ns.shared_with.join(","))
+                    format!(
+                        "{} containers [{}]",
+                        ns.shared_with.len(),
+                        ns.shared_with.join(",")
+                    )
                 }),
             ])
         })
         .collect();
-    let block = Block::default().borders(Borders::ALL).border_style(app.theme.border).title(" Namespaces (8 types) ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(app.theme.border)
+        .title(" Namespaces (8 types) ");
     if rows.is_empty() {
-        let p = Paragraph::new("No namespace data (select a container or check daemon)").block(block).wrap(Wrap { trim: true });
+        let p = Paragraph::new("No namespace data (select a container or check daemon)")
+            .block(block)
+            .wrap(Wrap { trim: true });
         f.render_widget(p, area);
         return;
     }
-    let table = Table::new(rows, widths).header(Row::new(header.iter().map(|h| Cell::from(*h).style(app.theme.header)))).block(block);
+    let table = Table::new(rows, widths)
+        .header(Row::new(
+            header
+                .iter()
+                .map(|h| Cell::from(*h).style(app.theme.header)),
+        ))
+        .block(block);
     f.render_widget(table, area);
 }
 
@@ -869,13 +993,22 @@ fn draw_layers_tab(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let header = ["#", "CHAIN_ID", "SIZE", "ORIGIN"];
-    let widths = [Constraint::Length(3), Constraint::Length(20), Constraint::Length(10), Constraint::Min(10)];
+    let widths = [
+        Constraint::Length(3),
+        Constraint::Length(20),
+        Constraint::Length(10),
+        Constraint::Min(10),
+    ];
     let rows: Vec<Row> = app
         .layers
         .iter()
         .enumerate()
         .map(|(i, l)| {
-            let short = if l.chain_id.len() > 16 { &l.chain_id[..16] } else { &l.chain_id };
+            let short = if l.chain_id.len() > 16 {
+                &l.chain_id[..16]
+            } else {
+                &l.chain_id
+            };
             Row::new(vec![
                 Cell::from(i.to_string()),
                 Cell::from(short.to_string()),
@@ -884,19 +1017,32 @@ fn draw_layers_tab(f: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect();
-    let block = Block::default().borders(Borders::ALL).border_style(app.theme.border).title(format!(" Overlay stack ({} layers) ", app.layers.len()));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(app.theme.border)
+        .title(format!(" Overlay stack ({} layers) ", app.layers.len()));
     if rows.is_empty() {
         let p = Paragraph::new("No layer data").block(block);
         f.render_widget(p, chunks[0]);
     } else {
-        let table = Table::new(rows, widths).header(Row::new(header.iter().map(|h| Cell::from(*h).style(app.theme.header)))).block(block);
+        let table = Table::new(rows, widths)
+            .header(Row::new(
+                header
+                    .iter()
+                    .map(|h| Cell::from(*h).style(app.theme.header)),
+            ))
+            .block(block);
         f.render_widget(table, chunks[0]);
     }
 
     // upperdir growth + copyups
     let total: u64 = app.layers.iter().map(|l| l.size_bytes).sum();
     let copyup_bytes: u64 = app.copyups.iter().map(|c| c.size_bytes).sum();
-    let ratio = if total > 0 { copyup_bytes as f64 / total as f64 } else { 0.0 };
+    let ratio = if total > 0 {
+        copyup_bytes as f64 / total as f64
+    } else {
+        0.0
+    };
     let info = format!(
         "upperdir copy-ups: {} files, {} bytes  ·  overlay total {}  ·  amplification {:.2}x\n{}",
         app.copyups.len(),
@@ -906,11 +1052,23 @@ fn draw_layers_tab(f: &mut Frame, app: &App, area: Rect) {
         app.copyups
             .iter()
             .take(8)
-            .map(|c| format!("  {} ({} {})", truncate(&c.path, 40), human_bytes(c.size_bytes), c.kind))
+            .map(|c| format!(
+                "  {} ({} {})",
+                truncate(&c.path, 40),
+                human_bytes(c.size_bytes),
+                c.kind
+            ))
             .collect::<Vec<_>>()
             .join("\n")
     );
-    let p = Paragraph::new(info).block(Block::default().borders(Borders::ALL).border_style(app.theme.border).title(" Upperdir growth ")).wrap(Wrap { trim: true });
+    let p = Paragraph::new(info)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(app.theme.border)
+                .title(" Upperdir growth "),
+        )
+        .wrap(Wrap { trim: true });
     f.render_widget(p, chunks[1]);
 }
 
@@ -936,13 +1094,22 @@ fn draw_mounts_tab(f: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect();
-    let block = Block::default().borders(Borders::ALL).border_style(app.theme.border).title(format!(" Mounts ({}) ", app.mounts.len()));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(app.theme.border)
+        .title(format!(" Mounts ({}) ", app.mounts.len()));
     if rows.is_empty() {
         let p = Paragraph::new("No mount data").block(block);
         f.render_widget(p, area);
         return;
     }
-    let table = Table::new(rows, widths).header(Row::new(header.iter().map(|h| Cell::from(*h).style(app.theme.header)))).block(block);
+    let table = Table::new(rows, widths)
+        .header(Row::new(
+            header
+                .iter()
+                .map(|h| Cell::from(*h).style(app.theme.header)),
+        ))
+        .block(block);
     f.render_widget(table, area);
 }
 
@@ -956,7 +1123,11 @@ fn draw_network_tab(f: &mut Frame, app: &App, area: Rect) {
             if n.published_ports.is_empty() {
                 "-".to_string()
             } else {
-                n.published_ports.iter().map(|(h, c)| format!("{h}:{c}")).collect::<Vec<_>>().join(", ")
+                n.published_ports
+                    .iter()
+                    .map(|(h, c)| format!("{h}:{c}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             },
             serde_json::to_string_pretty(n).unwrap_or_default()
         )
@@ -970,14 +1141,29 @@ fn draw_network_tab(f: &mut Frame, app: &App, area: Rect) {
     } else {
         "No container selected".to_string()
     };
-    let block = Block::default().borders(Borders::ALL).border_style(app.theme.border).title(" Network ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(app.theme.border)
+        .title(" Network ");
     let p = Paragraph::new(text).block(block).wrap(Wrap { trim: true });
     f.render_widget(p, area);
 }
 
 fn draw_logs_tab(f: &mut Frame, app: &App, area: Rect) {
-    let follow_label = if app.logs_follow { "follow: ON (f toggle)" } else { "follow: OFF (f toggle)" };
-    let block = Block::default().borders(Borders::ALL).border_style(app.theme.border).title(format!(" Logs {} · scroll {}/{} (j/k, PgUp/PgDn) ", follow_label, app.logs_scroll, app.logs.len()));
+    let follow_label = if app.logs_follow {
+        "follow: ON (f toggle)"
+    } else {
+        "follow: OFF (f toggle)"
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(app.theme.border)
+        .title(format!(
+            " Logs {} · scroll {}/{} (j/k, PgUp/PgDn) ",
+            follow_label,
+            app.logs_scroll,
+            app.logs.len()
+        ));
     let text = if app.logs.is_empty() {
         "No logs yet".to_string()
     } else {
@@ -988,7 +1174,13 @@ fn draw_logs_tab(f: &mut Frame, app: &App, area: Rect) {
         } else {
             app.logs_scroll.min(app.logs.len().saturating_sub(height))
         };
-        app.logs.iter().skip(start).take(height).cloned().collect::<Vec<_>>().join("\n")
+        app.logs
+            .iter()
+            .skip(start)
+            .take(height)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let p = Paragraph::new(text).block(block).wrap(Wrap { trim: true });
     f.render_widget(p, area);
@@ -1012,7 +1204,10 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 fn draw_help_overlay(f: &mut Frame, _app: &App, area: Rect) {
     let popup = centered_rect(70, 70, area);
     f.render_widget(Clear, popup);
-    let block = Block::default().borders(Borders::ALL).title(" Help (?) — press ? or Esc to close ").border_style(Style::default().fg(Color::Yellow));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Help (?) — press ? or Esc to close ")
+        .border_style(Style::default().fg(Color::Yellow));
     let text = vec![
         Line::from("Navigation:  j/k or ↑/↓  select container    / filter    Tab/Shift-Tab switch tab"),
         Line::from("Tabs:        Stats · Namespaces · Layers · Mounts · Network · Logs"),
@@ -1028,7 +1223,10 @@ fn draw_help_overlay(f: &mut Frame, _app: &App, area: Rect) {
         Line::from("Refresh:  SSE-driven over Unix socket (/run/kestrel.sock) or HTTP 127.0.0.1:7777, 1Hz stats"),
         Line::from("Themes:   NO_COLOR=1 disables colors"),
     ];
-    let p = Paragraph::new(text).block(block).wrap(Wrap { trim: true }).alignment(Alignment::Left);
+    let p = Paragraph::new(text)
+        .block(block)
+        .wrap(Wrap { trim: true })
+        .alignment(Alignment::Left);
     f.render_widget(p, popup);
 }
 
@@ -1036,16 +1234,33 @@ fn draw_confirm_overlay(f: &mut Frame, app: &App, area: Rect) {
     let popup = centered_rect(50, 20, area);
     f.render_widget(Clear, popup);
     let id = app.selected_id().unwrap_or_else(|| "-".to_string());
-    let block = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Red)).title(" Confirm delete ");
-    let text = format!("Delete container {} ?\n\n[y] confirm  [n]/Esc cancel", &id[..12.min(id.len())]);
-    let p = Paragraph::new(text).block(block).alignment(Alignment::Center).wrap(Wrap { trim: true });
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(" Confirm delete ");
+    let text = format!(
+        "Delete container {} ?\n\n[y] confirm  [n]/Esc cancel",
+        &id[..12.min(id.len())]
+    );
+    let p = Paragraph::new(text)
+        .block(block)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
     f.render_widget(p, popup);
 }
 
 fn draw_filter_overlay(f: &mut Frame, app: &App, area: Rect) {
-    let popup = Rect { x: area.x, y: area.height.saturating_sub(3), width: area.width, height: 3 };
+    let popup = Rect {
+        x: area.x,
+        y: area.height.saturating_sub(3),
+        width: area.width,
+        height: 3,
+    };
     f.render_widget(Clear, popup);
-    let block = Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)).title(" Filter (Enter apply, Esc cancel, / to edit) ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Filter (Enter apply, Esc cancel, / to edit) ");
     let p = Paragraph::new(format!("/{}", app.filter)).block(block);
     f.render_widget(p, popup);
 }
@@ -1083,7 +1298,11 @@ fn human_bytes(n: u64) -> String {
     }
 }
 fn truncate(s: &str, n: usize) -> &str {
-    if s.len() <= n { s } else { &s[..n] }
+    if s.len() <= n {
+        s
+    } else {
+        &s[..n]
+    }
 }
 fn gauge_bar(ratio: f64, width: usize) -> String {
     let filled = (ratio * width as f64).round() as usize;
@@ -1092,7 +1311,9 @@ fn gauge_bar(ratio: f64, width: usize) -> String {
 }
 fn parse_mem_max(s: &str) -> Option<u64> {
     let t = s.trim();
-    if t == "max" || t.is_empty() { return None; }
+    if t == "max" || t.is_empty() {
+        return None;
+    }
     t.parse::<u64>().ok()
 }
 
@@ -1100,7 +1321,10 @@ fn parse_mem_max(s: &str) -> Option<u64> {
 // Exec suspension
 // ---------------------------------------------------------------------------
 
-fn exec_suspend_and_run(id: &str, terminal: &mut Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+fn exec_suspend_and_run(
+    id: &str,
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+) -> Result<()> {
     suspend_terminal(terminal)?;
     // try kestrel CLI first, fallback to /bin/sh
     let kestrel_bin = find_kestrel_cli();
@@ -1139,10 +1363,14 @@ fn find_kestrel_cli() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let cand = dir.join("kestrel");
-            if cand.is_file() { return Some(cand); }
+            if cand.is_file() {
+                return Some(cand);
+            }
             if let Some(parent) = dir.parent() {
                 let cand2 = parent.join("kestrel");
-                if cand2.is_file() { return Some(cand2); }
+                if cand2.is_file() {
+                    return Some(cand2);
+                }
             }
         }
     }
@@ -1150,7 +1378,9 @@ fn find_kestrel_cli() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("PATH") {
         for p in path.split(':') {
             let cand = PathBuf::from(p).join("kestrel");
-            if cand.is_file() { return Some(cand); }
+            if cand.is_file() {
+                return Some(cand);
+            }
         }
     }
     None
@@ -1163,7 +1393,8 @@ fn find_kestrel_cli() -> Option<PathBuf> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let no_color = std::env::var("NO_COLOR").is_ok() || std::env::var("TERM").map(|t| t == "dumb").unwrap_or(false);
+    let no_color = std::env::var("NO_COLOR").is_ok()
+        || std::env::var("TERM").map(|t| t == "dumb").unwrap_or(false);
 
     // panic hook to restore terminal
     let orig_hook = panic::take_hook();
@@ -1200,9 +1431,16 @@ async fn main() -> Result<()> {
     if let Ok(containers) = api.list_containers().await {
         app.containers = containers;
         app.rebuild_filter();
-        app.set_status(format!("connected to {} · {} containers", api.base, app.containers.len()));
+        app.set_status(format!(
+            "connected to {} · {} containers",
+            api.base,
+            app.containers.len()
+        ));
     } else {
-        app.set_status(format!("connecting to {} (daemon unreachable, retrying…)", api.base));
+        app.set_status(format!(
+            "connecting to {} (daemon unreachable, retrying…)",
+            api.base
+        ));
     }
 
     let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -1296,164 +1534,189 @@ async fn main() -> Result<()> {
         }
 
         // Drain all pending input events (non-blocking)
+        let mut should_quit = false;
         while event::poll(Duration::from_millis(0))? {
-            if let Ok(ev) = event::read() {
-                if let Event::Key(key) = ev {
-                    if key.kind != KeyEventKind::Press { continue; }
-                    // filter mode
-                    if app.filter_mode {
-                        match key.code {
-                            KeyCode::Esc => { app.filter_mode = false; }
-                            KeyCode::Enter => { app.filter_mode = false; app.rebuild_filter(); }
-                            KeyCode::Backspace => { app.filter.pop(); app.rebuild_filter(); }
-                            KeyCode::Char(c) => {
-                                if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
-                                    app.filter_mode = false;
-                                } else {
-                                    app.filter.push(c);
-                                    app.rebuild_filter();
-                                }
-                            }
-                            _ => {}
-                        }
-                        continue;
-                    }
-                    if app.confirm_delete {
-                        match key.code {
-                            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                if let Some(id) = app.selected_id() {
-                                    let api2 = api.clone();
-                                    match api2.delete(&id, true).await {
-                                        Ok(()) => app.set_status(format!("deleted {id}")),
-                                        Err(e) => app.set_status(format!("delete failed: {e}")),
-                                    }
-                                }
-                                app.confirm_delete = false;
-                            }
-                            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                                app.confirm_delete = false;
-                            }
-                            _ => {}
-                        }
-                        continue;
-                    }
-                    if app.help_visible {
-                        match key.code {
-                            KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => app.help_visible = false,
-                            _ => app.help_visible = false,
-                        }
-                        continue;
-                    }
+            if let Ok(Event::Key(key)) = event::read() {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                // filter mode
+                if app.filter_mode {
                     match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char('?') => app.help_visible = !app.help_visible,
-                        KeyCode::Char('/') => { app.filter_mode = true; }
-                        KeyCode::Tab => {
-                            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                app.detail_tab = app.detail_tab.prev();
-                            } else {
-                                app.detail_tab = app.detail_tab.next();
-                            }
-                        }
-                        KeyCode::BackTab => app.detail_tab = app.detail_tab.prev(),
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            if app.detail_tab == DetailTab::Logs && !app.logs_follow {
-                                app.logs_scroll = app.logs_scroll.saturating_add(1);
-                            } else if !app.filtered_indices.is_empty() {
-                                app.selected = (app.selected + 1) % app.filtered_indices.len();
-                                // reset per-container detail caches
-                                app.cpu_hist.clear();
-                                app.mem_hist.clear();
-                                app.namespaces.clear();
-                                app.layers.clear();
-                                app.logs.clear();
-                            }
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            if app.detail_tab == DetailTab::Logs && !app.logs_follow {
-                                app.logs_scroll = app.logs_scroll.saturating_sub(1);
-                            } else if !app.filtered_indices.is_empty() {
-                                app.selected = app.selected.checked_sub(1).unwrap_or(app.filtered_indices.len().saturating_sub(1));
-                                app.cpu_hist.clear();
-                                app.mem_hist.clear();
-                                app.namespaces.clear();
-                                app.layers.clear();
-                                app.logs.clear();
-                            }
-                        }
-                        KeyCode::Char('f') if app.detail_tab == DetailTab::Logs => {
-                            app.logs_follow = !app.logs_follow;
-                        }
-                        KeyCode::PageDown => {
-                            if app.detail_tab == DetailTab::Logs {
-                                app.logs_follow = false;
-                                app.logs_scroll = app.logs_scroll.saturating_add(10);
-                            }
-                        }
-                        KeyCode::PageUp => {
-                            if app.detail_tab == DetailTab::Logs {
-                                app.logs_follow = false;
-                                app.logs_scroll = app.logs_scroll.saturating_sub(10);
-                            }
-                        }
-                        KeyCode::Char('s') => {
-                            if let Some(id) = app.selected_id() {
-                                match api.post_action(&id, "start").await {
-                                    Ok(()) => app.set_status(format!("started {id}")),
-                                    Err(e) => app.set_status(format!("start failed: {e}")),
-                                }
-                            }
-                        }
-                        KeyCode::Char('S') => {
-                            if let Some(id) = app.selected_id() {
-                                match api.post_action(&id, "stop").await {
-                                    Ok(()) => app.set_status(format!("stopped {id}")),
-                                    Err(e) => app.set_status(format!("stop failed: {e}")),
-                                }
-                            }
-                        }
-                        KeyCode::Char('p') => {
-                            if let Some(id) = app.selected_id() {
-                                // toggle pause/unpause based on status
-                                let is_paused = app.selected_container().map(|c| c.status.to_lowercase() == "paused").unwrap_or(false);
-                                let action = if is_paused { "unpause" } else { "pause" };
-                                match api.post_action(&id, action).await {
-                                    Ok(()) => app.set_status(format!("{action} {id}")),
-                                    Err(e) => app.set_status(format!("{action} failed: {e}")),
-                                }
-                            }
-                        }
-                        KeyCode::Char('d') => {
-                            if app.selected_id().is_some() {
-                                app.confirm_delete = true;
-                            }
-                        }
-                        KeyCode::Char('e') => {
-                            if let Some(id) = app.selected_id() {
-                                let _ = exec_suspend_and_run(&id, &mut terminal);
-                                app.set_status(format!("exec finished for {id}"));
-                            }
-                        }
-                        KeyCode::Char('r') => {
-                            if let Some(id) = app.selected_id() {
-                                let _ = api.post_action(&id, "stop").await;
-                                tokio::time::sleep(Duration::from_millis(300)).await;
-                                match api.post_action(&id, "start").await {
-                                    Ok(()) => app.set_status(format!("restarted {id}")),
-                                    Err(e) => app.set_status(format!("restart failed: {e}")),
-                                }
-                            }
-                        }
                         KeyCode::Esc => {
-                            if !app.filter.is_empty() {
-                                app.filter.clear();
+                            app.filter_mode = false;
+                        }
+                        KeyCode::Enter => {
+                            app.filter_mode = false;
+                            app.rebuild_filter();
+                        }
+                        KeyCode::Backspace => {
+                            app.filter.pop();
+                            app.rebuild_filter();
+                        }
+                        KeyCode::Char(c) => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
+                                app.filter_mode = false;
+                            } else {
+                                app.filter.push(c);
                                 app.rebuild_filter();
                             }
                         }
                         _ => {}
                     }
+                    continue;
+                }
+                if app.confirm_delete {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            if let Some(id) = app.selected_id() {
+                                let api2 = api.clone();
+                                match api2.delete(&id, true).await {
+                                    Ok(()) => app.set_status(format!("deleted {id}")),
+                                    Err(e) => app.set_status(format!("delete failed: {e}")),
+                                }
+                            }
+                            app.confirm_delete = false;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            app.confirm_delete = false;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                if app.help_visible {
+                    match key.code {
+                        KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => {
+                            app.help_visible = false
+                        }
+                        _ => app.help_visible = false,
+                    }
+                    continue;
+                }
+                match key.code {
+                    KeyCode::Char('q') => {
+                        should_quit = true;
+                        break;
+                    }
+                    KeyCode::Char('?') => app.help_visible = !app.help_visible,
+                    KeyCode::Char('/') => {
+                        app.filter_mode = true;
+                    }
+                    KeyCode::Tab => {
+                        if key.modifiers.contains(KeyModifiers::SHIFT) {
+                            app.detail_tab = app.detail_tab.prev();
+                        } else {
+                            app.detail_tab = app.detail_tab.next();
+                        }
+                    }
+                    KeyCode::BackTab => app.detail_tab = app.detail_tab.prev(),
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        if app.detail_tab == DetailTab::Logs && !app.logs_follow {
+                            app.logs_scroll = app.logs_scroll.saturating_add(1);
+                        } else if !app.filtered_indices.is_empty() {
+                            app.selected = (app.selected + 1) % app.filtered_indices.len();
+                            // reset per-container detail caches
+                            app.cpu_hist.clear();
+                            app.mem_hist.clear();
+                            app.namespaces.clear();
+                            app.layers.clear();
+                            app.logs.clear();
+                        }
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        if app.detail_tab == DetailTab::Logs && !app.logs_follow {
+                            app.logs_scroll = app.logs_scroll.saturating_sub(1);
+                        } else if !app.filtered_indices.is_empty() {
+                            app.selected = app
+                                .selected
+                                .checked_sub(1)
+                                .unwrap_or(app.filtered_indices.len().saturating_sub(1));
+                            app.cpu_hist.clear();
+                            app.mem_hist.clear();
+                            app.namespaces.clear();
+                            app.layers.clear();
+                            app.logs.clear();
+                        }
+                    }
+                    KeyCode::Char('f') if app.detail_tab == DetailTab::Logs => {
+                        app.logs_follow = !app.logs_follow;
+                    }
+                    KeyCode::PageDown => {
+                        if app.detail_tab == DetailTab::Logs {
+                            app.logs_follow = false;
+                            app.logs_scroll = app.logs_scroll.saturating_add(10);
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        if app.detail_tab == DetailTab::Logs {
+                            app.logs_follow = false;
+                            app.logs_scroll = app.logs_scroll.saturating_sub(10);
+                        }
+                    }
+                    KeyCode::Char('s') => {
+                        if let Some(id) = app.selected_id() {
+                            match api.post_action(&id, "start").await {
+                                Ok(()) => app.set_status(format!("started {id}")),
+                                Err(e) => app.set_status(format!("start failed: {e}")),
+                            }
+                        }
+                    }
+                    KeyCode::Char('S') => {
+                        if let Some(id) = app.selected_id() {
+                            match api.post_action(&id, "stop").await {
+                                Ok(()) => app.set_status(format!("stopped {id}")),
+                                Err(e) => app.set_status(format!("stop failed: {e}")),
+                            }
+                        }
+                    }
+                    KeyCode::Char('p') => {
+                        if let Some(id) = app.selected_id() {
+                            // toggle pause/unpause based on status
+                            let is_paused = app
+                                .selected_container()
+                                .map(|c| c.status.to_lowercase() == "paused")
+                                .unwrap_or(false);
+                            let action = if is_paused { "unpause" } else { "pause" };
+                            match api.post_action(&id, action).await {
+                                Ok(()) => app.set_status(format!("{action} {id}")),
+                                Err(e) => app.set_status(format!("{action} failed: {e}")),
+                            }
+                        }
+                    }
+                    KeyCode::Char('d') => {
+                        if app.selected_id().is_some() {
+                            app.confirm_delete = true;
+                        }
+                    }
+                    KeyCode::Char('e') => {
+                        if let Some(id) = app.selected_id() {
+                            let _ = exec_suspend_and_run(&id, &mut terminal);
+                            app.set_status(format!("exec finished for {id}"));
+                        }
+                    }
+                    KeyCode::Char('r') => {
+                        if let Some(id) = app.selected_id() {
+                            let _ = api.post_action(&id, "stop").await;
+                            tokio::time::sleep(Duration::from_millis(300)).await;
+                            match api.post_action(&id, "start").await {
+                                Ok(()) => app.set_status(format!("restarted {id}")),
+                                Err(e) => app.set_status(format!("restart failed: {e}")),
+                            }
+                        }
+                    }
+                    KeyCode::Esc if !app.filter.is_empty() => {
+                        app.filter.clear();
+                        app.rebuild_filter();
+                    }
+                    KeyCode::Esc => {}
+                    _ => {}
                 }
             }
+        }
+
+        if should_quit {
+            break;
         }
 
         // clear error after 5s
@@ -1470,7 +1733,13 @@ async fn sse_loop(api: &ApiClient, tx: &tokio::sync::mpsc::Sender<String>) -> Re
     // Try Unix socket first if it exists, otherwise TCP.
     // For TCP we use reqwest streaming.
     let url = api.url("/events");
-    let resp = api.client.get(&url).header("Accept", "text/event-stream").send().await.context("GET /events")?;
+    let resp = api
+        .client
+        .get(&url)
+        .header("Accept", "text/event-stream")
+        .send()
+        .await
+        .context("GET /events")?;
     if !resp.status().is_success() {
         anyhow::bail!("GET /events {}", resp.status());
     }

@@ -49,11 +49,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use kestrel_ns::types::NsType;
 use kestrel_oci::default_spec::{default_namespaces, default_spec};
 use kestrel_oci::raw::RawSpec;
-use kestrel_oci::runtime::{LinuxBuilder, LinuxIdMappingBuilder, LinuxNamespace, LinuxNamespaceBuilder, LinuxNamespaceType};
+use kestrel_oci::runtime::{
+    LinuxBuilder, LinuxIdMappingBuilder, LinuxNamespace, LinuxNamespaceBuilder, LinuxNamespaceType,
+};
 use kestrel_oci::state::{State, Status};
-use kestrel_ns::types::NsType;
 use kestrel_runtime::bundle::Bundle;
 
 struct MountGuard(PathBuf);
@@ -194,7 +196,14 @@ fn namespaces_without_mount_plus_user() -> Vec<LinuxNamespace> {
 /// destroy-on-drop cgroup guard for `id`. Returns the guards (which must
 /// outlive the `create()` call and any assertions) plus the two
 /// directories.
-fn setup_dirs(id: &str) -> (tempfile::TempDir, tempfile::TempDir, MountGuard, CgroupGuard) {
+fn setup_dirs(
+    id: &str,
+) -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    MountGuard,
+    CgroupGuard,
+) {
     let data_dir = tempfile::tempdir().expect("data_dir tempdir");
     let cgroups_mount = data_dir.path().join("cgroups");
     std::fs::create_dir_all(&cgroups_mount).expect("mkdir cgroups mountpoint");
@@ -229,7 +238,8 @@ fn test_create_pins_every_namespace_and_pins_are_real_setns_targets() {
 
         let bundle_dir = tempfile::tempdir().expect("bundle tempdir");
         // NsType::Mount deliberately excluded — see module doc comment.
-        let bundle = bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
+        let bundle =
+            bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
 
         let id = format!("pins-{}", nix::unistd::getpid().as_raw());
         let (run_dir, data_dir, mount_guard, cgroup_guard) = setup_dirs(&id);
@@ -247,7 +257,8 @@ fn test_create_pins_every_namespace_and_pins_are_real_setns_targets() {
         let state_path = run_dir.path().join(&id).join("state.json");
         let state = State::read(&state_path).expect("read state.json");
         assert_eq!(state.status, Status::Created);
-        let target_pid = nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
+        let target_pid =
+            nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
         // Guard the spawned process from here on, as early as its pid is
         // knowable — it blocks forever, so a panic in any assertion below
         // must not leak it. Explicitly dropped further down (see there)
@@ -274,8 +285,10 @@ fn test_create_pins_every_namespace_and_pins_are_real_setns_targets() {
                 pin_path.display()
             );
             let pin_identity = stat_ns_identity(&pin_path);
-            let real_identity =
-                stat_ns_identity(Path::new(&format!("/proc/{target_pid}/ns/{}", ns.proc_name())));
+            let real_identity = stat_ns_identity(Path::new(&format!(
+                "/proc/{target_pid}/ns/{}",
+                ns.proc_name()
+            )));
             assert_eq!(
                 pin_identity, real_identity,
                 "pin file for {ns:?} does not match the container's real namespace"
@@ -297,7 +310,13 @@ fn test_create_pins_every_namespace_and_pins_are_real_setns_targets() {
         // (i.e. the namespace of children it forks afterward). That's
         // documented kernel behavior (`pid_namespaces(7)`), not a gap
         // here.
-        let checked_via_setns = [NsType::Net, NsType::Ipc, NsType::Uts, NsType::Cgroup, NsType::User];
+        let checked_via_setns = [
+            NsType::Net,
+            NsType::Ipc,
+            NsType::Uts,
+            NsType::Cgroup,
+            NsType::User,
+        ];
         let pins_for_join = pins.clone();
         kestrel_ns::test_util::run_isolated(move || {
             let pins = pins_for_join;
@@ -317,7 +336,8 @@ fn test_create_pins_every_namespace_and_pins_are_real_setns_targets() {
             kestrel_ns::join::join_namespaces(&pins).expect("join_namespaces via the pin files");
 
             for &ns in &checked_via_setns {
-                let after = stat_ns_identity(Path::new(&format!("/proc/self/ns/{}", ns.proc_name())));
+                let after =
+                    stat_ns_identity(Path::new(&format!("/proc/self/ns/{}", ns.proc_name())));
                 let pin_identity = stat_ns_identity(&pins[&ns]);
                 assert_eq!(
                     after, pin_identity,
@@ -380,7 +400,8 @@ fn test_create_tolerates_unpinnable_mount_namespace_and_pins_the_rest() {
         let state_path = run_dir.path().join(&id).join("state.json");
         let state = State::read(&state_path).expect("read state.json");
         assert_eq!(state.status, Status::Created);
-        let target_pid = nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
+        let target_pid =
+            nix::unistd::Pid::from_raw(state.pid.expect("state.json must carry a pid"));
         // Guard the spawned process from here on — it blocks forever, so
         // a panic in any assertion below must not leak it.
         let process_guard = ProcessGuard(target_pid);
@@ -405,8 +426,10 @@ fn test_create_tolerates_unpinnable_mount_namespace_and_pins_the_rest() {
                 pin_path.display()
             );
             let pin_identity = stat_ns_identity(&pin_path);
-            let real_identity =
-                stat_ns_identity(Path::new(&format!("/proc/{target_pid}/ns/{}", ns.proc_name())));
+            let real_identity = stat_ns_identity(Path::new(&format!(
+                "/proc/{target_pid}/ns/{}",
+                ns.proc_name()
+            )));
             assert_eq!(
                 pin_identity, real_identity,
                 "pin file for {ns:?} does not match the container's real namespace"

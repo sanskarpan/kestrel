@@ -81,8 +81,8 @@ use kestrel_oci::state::{State, Status};
 /// must be `resume`d first.
 pub fn exec(id: &str, run_dir: &Path, process: &Process) -> Result<i32> {
     let state_json_path = crate::state::state_json_path(run_dir, id);
-    let state = State::read(&state_json_path)
-        .with_context(|| format!("container {id} not found"))?;
+    let state =
+        State::read(&state_json_path).with_context(|| format!("container {id} not found"))?;
     anyhow::ensure!(
         matches!(state.status, Status::Created | Status::Running),
         "cannot exec into container {id}: status is {:?}, expected Created or Running",
@@ -203,8 +203,12 @@ mod tests {
     #[test]
     fn test_exec_errors_when_container_does_not_exist() {
         let run_dir = tempfile::tempdir().unwrap();
-        let err = exec("definitely-does-not-exist", run_dir.path(), &dummy_process())
-            .expect_err("exec against a never-created id must fail, not silently no-op");
+        let err = exec(
+            "definitely-does-not-exist",
+            run_dir.path(),
+            &dummy_process(),
+        )
+        .expect_err("exec against a never-created id must fail, not silently no-op");
         assert!(
             format!("{err:#}").contains("not found"),
             "unexpected error: {err:#}"

@@ -56,7 +56,13 @@ async fn mount_manifest(server: &MockServer, repo_path: &str, tag: &str, body: V
         .await;
 }
 
-async fn mount_blob(server: &MockServer, repo_path: &str, digest: &str, body: Vec<u8>, delay: Option<Duration>) {
+async fn mount_blob(
+    server: &MockServer,
+    repo_path: &str,
+    digest: &str,
+    body: Vec<u8>,
+    delay: Option<Duration>,
+) {
     let mut template = ResponseTemplate::new(200).set_body_bytes(body);
     if let Some(d) = delay {
         template = template.set_delay(d);
@@ -105,9 +111,11 @@ async fn test_pull_image_single_layer_chain_id_and_contents_match() {
     let reference = reference::parse("myrepo/myimage:latest").unwrap();
 
     let mut events = Vec::new();
-    let chain_ids = pull_image_with_client(client, &reference, &store, &layer_store, false, |e| events.push(e))
-        .await
-        .unwrap();
+    let chain_ids = pull_image_with_client(client, &reference, &store, &layer_store, false, |e| {
+        events.push(e)
+    })
+    .await
+    .unwrap();
 
     // Independently computed expected chain-id: chain_id(None, diffID),
     // where diffID is the SHA-256 of the UNCOMPRESSED tar bytes (not the
@@ -122,14 +130,28 @@ async fn test_pull_image_single_layer_chain_id_and_contents_match() {
     assert_eq!(std::fs::read(diff_dir.join("file.txt")).unwrap(), b"hello");
 
     // Progress events in a sensible order.
-    assert!(matches!(events.first(), Some(PullProgress::ManifestFetched { .. })), "{events:?}");
-    assert!(matches!(events.last(), Some(PullProgress::Complete { .. })), "{events:?}");
+    assert!(
+        matches!(events.first(), Some(PullProgress::ManifestFetched { .. })),
+        "{events:?}"
+    );
+    assert!(
+        matches!(events.last(), Some(PullProgress::Complete { .. })),
+        "{events:?}"
+    );
     let idx = |pred: &dyn Fn(&PullProgress) -> bool| events.iter().position(pred);
     let start = idx(&|e| matches!(e, PullProgress::LayerStart { .. })).expect("LayerStart missing");
-    let downloaded = idx(&|e| matches!(e, PullProgress::LayerDownloaded { .. })).expect("LayerDownloaded missing");
-    let extracted = idx(&|e| matches!(e, PullProgress::LayerExtracted { .. })).expect("LayerExtracted missing");
-    assert!(start < downloaded, "LayerStart must precede LayerDownloaded: {events:?}");
-    assert!(downloaded < extracted, "LayerDownloaded must precede LayerExtracted: {events:?}");
+    let downloaded = idx(&|e| matches!(e, PullProgress::LayerDownloaded { .. }))
+        .expect("LayerDownloaded missing");
+    let extracted =
+        idx(&|e| matches!(e, PullProgress::LayerExtracted { .. })).expect("LayerExtracted missing");
+    assert!(
+        start < downloaded,
+        "LayerStart must precede LayerDownloaded: {events:?}"
+    );
+    assert!(
+        downloaded < extracted,
+        "LayerDownloaded must precede LayerExtracted: {events:?}"
+    );
 }
 
 /// Test 2: the SAME base layer referenced from two different pulls (here,
@@ -174,11 +196,21 @@ async fn test_pull_image_dedup_skips_reextraction_of_shared_layer() {
     let client1 = Arc::new(RegistryClient::with_base_url(server.uri()).unwrap());
     let reference1 = reference::parse("myrepo/myimage:v1").unwrap();
     let mut events1 = Vec::new();
-    pull_image_with_client(client1, &reference1, &store, &layer_store, false, |e| events1.push(e))
-        .await
-        .unwrap();
-    assert!(events1.iter().any(|e| matches!(e, PullProgress::LayerExtracted { .. })), "{events1:?}");
-    assert_eq!(std::fs::read(diff_dir.join("shared.txt")).unwrap(), b"shared layer contents");
+    pull_image_with_client(client1, &reference1, &store, &layer_store, false, |e| {
+        events1.push(e)
+    })
+    .await
+    .unwrap();
+    assert!(
+        events1
+            .iter()
+            .any(|e| matches!(e, PullProgress::LayerExtracted { .. })),
+        "{events1:?}"
+    );
+    assert_eq!(
+        std::fs::read(diff_dir.join("shared.txt")).unwrap(),
+        b"shared layer contents"
+    );
 
     // Plant a sentinel that pure re-extraction (via the rename-on-success
     // mechanism) would wipe out.
@@ -188,14 +220,24 @@ async fn test_pull_image_dedup_skips_reextraction_of_shared_layer() {
     let client2 = Arc::new(RegistryClient::with_base_url(server.uri()).unwrap());
     let reference2 = reference::parse("myrepo/myimage:v2").unwrap();
     let mut events2 = Vec::new();
-    let chain_ids2 = pull_image_with_client(client2, &reference2, &store, &layer_store, false, |e| events2.push(e))
+    let chain_ids2 =
+        pull_image_with_client(client2, &reference2, &store, &layer_store, false, |e| {
+            events2.push(e)
+        })
         .await
         .unwrap();
 
     assert_eq!(chain_ids2, vec![expected_chain_id]);
-    assert!(events2.iter().any(|e| matches!(e, PullProgress::LayerDeduped { .. })), "{events2:?}");
     assert!(
-        !events2.iter().any(|e| matches!(e, PullProgress::LayerExtracted { .. })),
+        events2
+            .iter()
+            .any(|e| matches!(e, PullProgress::LayerDeduped { .. })),
+        "{events2:?}"
+    );
+    assert!(
+        !events2
+            .iter()
+            .any(|e| matches!(e, PullProgress::LayerExtracted { .. })),
         "must not re-extract a deduped layer: {events2:?}"
     );
     assert_eq!(
@@ -233,7 +275,9 @@ async fn test_pull_image_phase_a_downloads_are_genuinely_concurrent() {
     let reference = reference::parse("myrepo/myimage:latest").unwrap();
 
     let started = Instant::now();
-    let chain_ids = pull_image_with_client(client, &reference, &store, &layer_store, false, |_| {}).await.unwrap();
+    let chain_ids = pull_image_with_client(client, &reference, &store, &layer_store, false, |_| {})
+        .await
+        .unwrap();
     let elapsed = started.elapsed();
 
     assert_eq!(chain_ids.len(), num_layers);
@@ -306,8 +350,12 @@ async fn test_pull_image_cancelled_concurrent_download_never_corrupts_content_st
     let client = Arc::new(RegistryClient::with_base_url(server.uri()).unwrap());
     let reference = reference::parse("myrepo/myimage:latest").unwrap();
 
-    let result = pull_image_with_client(client, &reference, &store, &layer_store, false, |_| {}).await;
-    assert!(result.is_err(), "the pull must fail overall because one layer 404'd");
+    let result =
+        pull_image_with_client(client, &reference, &store, &layer_store, false, |_| {}).await;
+    assert!(
+        result.is_err(),
+        "the pull must fail overall because one layer 404'd"
+    );
 
     // The property under test: every victim's blob is EITHER absent from
     // its final content-addressed path, OR (if it happened to fully

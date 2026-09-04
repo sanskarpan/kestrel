@@ -62,12 +62,24 @@ use nix::sched::{unshare, CloneFlags};
 fn run_in_fresh_mount_ns(f: impl FnOnce() + std::panic::UnwindSafe) {
     kestrel_ns::test_util::run_isolated(|| {
         unshare(CloneFlags::CLONE_NEWNS).expect("unshare(CLONE_NEWNS)");
-        mount(None::<&str>, "/", None::<&str>, MsFlags::MS_PRIVATE | MsFlags::MS_REC, None::<&str>)
-            .expect("remount / as MS_PRIVATE|MS_REC");
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC,
+            None::<&str>,
+        )
+        .expect("remount / as MS_PRIVATE|MS_REC");
         // Turn /tmp into a real mountpoint (self bind-mount), confined to
         // this private namespace copy and gone when this child exits.
-        mount(Some("/tmp"), "/tmp", None::<&str>, MsFlags::MS_BIND, None::<&str>)
-            .expect("self bind-mount /tmp so it's remountable");
+        mount(
+            Some("/tmp"),
+            "/tmp",
+            None::<&str>,
+            MsFlags::MS_BIND,
+            None::<&str>,
+        )
+        .expect("self bind-mount /tmp so it's remountable");
         f();
     });
 }
@@ -80,7 +92,8 @@ fn test_caps_dropped_blocks_mount() {
         // default-ish shape without the one capability mount(2) needs.
         // DEFAULT_CAPABILITIES already excludes SysAdmin (see its doc
         // comment in caps.rs), so it's exactly this set.
-        let bounding: kestrel_oci::runtime::Capabilities = DEFAULT_CAPABILITIES.iter().copied().collect();
+        let bounding: kestrel_oci::runtime::Capabilities =
+            DEFAULT_CAPABILITIES.iter().copied().collect();
 
         let linux_caps = LinuxCapabilitiesBuilder::default()
             .bounding(bounding.clone())
@@ -97,8 +110,14 @@ fn test_caps_dropped_blocks_mount() {
         // gate mount() at this point. Attempting a real remount of our
         // private self-bind-mounted /tmp (see module doc / run_in_fresh_mount_ns)
         // without CAP_SYS_ADMIN in the effective set must fail EPERM.
-        let err = mount(None::<&str>, "/tmp", None::<&str>, MsFlags::MS_REMOUNT, None::<&str>)
-            .expect_err("mount() must fail once CAP_SYS_ADMIN is dropped");
+        let err = mount(
+            None::<&str>,
+            "/tmp",
+            None::<&str>,
+            MsFlags::MS_REMOUNT,
+            None::<&str>,
+        )
+        .expect_err("mount() must fail once CAP_SYS_ADMIN is dropped");
         assert_eq!(err, nix::errno::Errno::EPERM);
     });
 }
@@ -112,7 +131,13 @@ fn test_apply_capabilities_none_is_a_no_op() {
         // work — proving nothing was dropped. Confined to this forked
         // child's private namespace copy (see module doc) and vanishes
         // when the child exits, never reaching the VM's real mount table.
-        mount(None::<&str>, "/tmp", None::<&str>, MsFlags::MS_REMOUNT, None::<&str>)
-            .expect("mount() must still work when apply_capabilities(None) touched nothing");
+        mount(
+            None::<&str>,
+            "/tmp",
+            None::<&str>,
+            MsFlags::MS_REMOUNT,
+            None::<&str>,
+        )
+        .expect("mount() must still work when apply_capabilities(None) touched nothing");
     });
 }
