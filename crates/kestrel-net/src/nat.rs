@@ -284,10 +284,23 @@ fn ensure_rule(table: &str, spec: &[String], description: &str) -> Result<()> {
 pub fn enable_forwarding_sysctls() -> Result<()> {
     std::fs::write("/proc/sys/net/ipv4/ip_forward", b"1").context("writing net.ipv4.ip_forward=1")?;
     let br_path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
-    std::fs::write(br_path, b"1").with_context(|| {
-        format!("writing {br_path}=1 — if this path doesn't exist, the br_netfilter kernel module needs to be loaded first (`modprobe br_netfilter`)")
-    })?;
-    Ok(())
+    match std::fs::write(br_path, b"1") {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Attempt to auto-load br_netfilter — the most common cause of
+            // ENOENT in fresh Lima/Ubuntu VMs where the module is available
+            // but not yet loaded. Best-effort: if modprobe fails, fall
+            // through to the original error with context.
+            let _ = Command::new("modprobe").arg("br_netfilter").output();
+            std::fs::write(br_path, b"1").with_context(|| {
+                format!("writing {br_path}=1 — if this path doesn't exist, the br_netfilter kernel module needs to be loaded first (`modprobe br_netfilter`)")
+            })?;
+            Ok(())
+        }
+        Err(e) => Err(e).with_context(|| {
+            format!("writing {br_path}=1 — if this path doesn't exist, the br_netfilter kernel module needs to be loaded first (`modprobe br_netfilter`)")
+        })?,
+    }
 }
 
 /// Ensures the `KESTREL-POSTROUTING`/`KESTREL-FORWARD` chains (the two
