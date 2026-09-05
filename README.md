@@ -7,6 +7,12 @@
 
 > **Status:** All 328 `CHECKLIST.md` tasks across Phases 0–14 complete and verified (runtime → daemon → CLI/TUI/dashboard + privileged integration suite). See `CHECKLIST.md` and `SPEC.md` for the full roadmap.
 
+![Kestrel demo: ps, exec, explain](docs/assets/demo.gif)
+
+| Dashboard (live container) | TUI (ratatui) |
+|---|---|
+| ![Web dashboard](docs/assets/dashboard.png) | ![TUI](docs/assets/tui.png) |
+
 ---
 
 ## Why Rust (not Go)
