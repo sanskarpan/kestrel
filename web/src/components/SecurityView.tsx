@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useContainers, useCaps, useSeccomp } from "@/api/queries";
 import { useAppStore } from "@/store/appStore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +20,16 @@ export function SecurityView() {
   // Also watch SSE for live seccomp.violation events pushed via global App events
   const events = useAppStore((s)=>s.events);
   const [liveViolations, setLiveViolations] = useState<{syscall:string, ts:string}[]>([]);
+  // Dedupe key: the events array is re-scanned on every SSE arrival, so
+  // already-processed events must be skipped to avoid duplicate feed entries.
+  const seenViolations = useRef<Set<string>>(new Set());
+  // oxlint-disable-next-line react/set-state-in-effect — syncing the external SSE event stream into local + global violation feeds; not derivable during render
   useEffect(()=>{
     for (const ev of events) {
       if (ev.type === "seccomp.violation" || ev.type === "seccomp_violation" || ev.type === "SeccompViolation") {
+        const key = `${ev.timestamp}:${ev.type}:${JSON.stringify(ev.data)}`;
+        if (seenViolations.current.has(key)) continue;
+        seenViolations.current.add(key);
         const data = ev.data as { syscall?: string; id?: string, syscall_name?: string } | string;
         const syscall = typeof data === "string" ? data : (data.syscall ?? data.syscall_name ?? JSON.stringify(data));
         setLiveViolations((prev)=>[{syscall, ts: ev.timestamp}, ...prev].slice(0,20));

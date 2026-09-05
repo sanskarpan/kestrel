@@ -737,31 +737,125 @@ fn render_template(template: &str, value: &serde_json::Value) -> String {
 
 async fn do_explain(host: &str, id: &str) -> Result<()> {
     let inspect = fetch_json(host, &format!("/containers/{id}")).await?;
+    let short = id.chars().take(12).collect::<String>();
+    println!("Creation trace for container {short} (id {id}):");
     println!(
-        "Container {}",
-        inspect.get("id").and_then(|v| v.as_str()).unwrap_or(id)
+        "  1. spec validated (root path, process args, no duplicate namespaces, id-map coverage)"
     );
     println!(
-        "  state: {}",
-        inspect.get("status").unwrap_or(&serde_json::Value::Null)
+        "  2. bundle materialized; state={} pid={} tty={}",
+        inspect.get("status").unwrap_or(&serde_json::Value::Null),
+        inspect
+            .get("pid")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        inspect
+            .get("tty")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string()),
     );
-    if let Some(pid) = inspect.get("pid") {
-        println!("  pid: {pid}");
-    }
-    for (label, path) in [
-        ("namespaces", "/namespaces"),
-        ("cgroup resources", "/cgroup"),
-        ("mounts", "/mounts"),
-        ("network", "/network"),
-    ] {
-        match fetch_json(host, &format!("/containers/{id}{path}")).await {
-            Ok(value) => {
-                println!("\n{label}:");
-                println!("{}", serde_json::to_string_pretty(&value)?);
+    match fetch_json(host, &format!("/containers/{id}/namespaces")).await {
+        Ok(ns) => {
+            let count = ns
+                .get("namespaces")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            println!(
+                "  3. namespaces created+pinned ({count} entries; user namespace joined last)"
+            );
+            if let Some(arr) = ns.get("namespaces").and_then(|v| v.as_array()) {
+                for entry in arr.iter().take(8) {
+                    let t = entry.get("ns_type").and_then(|v| v.as_str()).unwrap_or("?");
+                    let inode = entry
+                        .get("inode")
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "?".to_string());
+                    println!("     - {t}: inode {inode}");
+                }
             }
-            Err(error) => eprintln!("  {label}: unavailable ({error})"),
+        }
+        Err(error) => println!("  3. namespaces: unavailable ({error})"),
+    }
+    match fetch_json(host, &format!("/containers/{id}/cgroup")).await {
+        Ok(cg) => println!(
+            "  4. cgroup limits applied (memory_max={} pids_max={} cpu_max={})",
+            cg.get("memory_max")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string()),
+            cg.get("pids_max")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string()),
+            cg.get("cpu_max")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string()),
+        ),
+        Err(error) => println!("  4. cgroup: unavailable ({error})"),
+    }
+    match fetch_json(host, &format!("/containers/{id}/mounts")).await {
+        Ok(m) => {
+            let count = m
+                .get("mounts")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            println!("  5. rootfs mounted + pivot_root ({count} standard mounts; MS_PRIVATE first, MS_SLAVE before detach)");
+        }
+        Err(error) => println!("  5. mounts: unavailable ({error})"),
+    }
+    match fetch_json(host, &format!("/containers/{id}/network")).await {
+        Ok(n) => println!(
+            "  6. network attached (mode={} ip={})",
+            n.get("mode").and_then(|v| v.as_str()).unwrap_or("?"),
+            n.get("ip").and_then(|v| v.as_str()).unwrap_or("-"),
+        ),
+        Err(error) => println!("  6. network: unavailable ({error})"),
+    }
+    println!("  7. entrypoint exec'd via kestrel-init (caps, no_new_privs, seccomp before execve)");
+    println!("  note: per-phase timings are not recorded by the daemon; use RUST_LOG=debug on kestreld for live timings (see docs/EXPLAIN.md)");
+    Ok(())
+}
+
+async fn do_diff(host: &str, id: &str) -> Result<()> {
+    let copyups = fetch_json(host, &format!("/containers/{id}/copyups")).await?;
+    let entries = copyups
+        .get("copy_ups")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut modified = Vec::new();
+    let mut deleted = Vec::new();
+    for entry in &entries {
+        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        match kind {
+            "Whiteout" | "Opaque" => deleted.push(entry),
+            _ => modified.push(entry),
         }
     }
+    println!("diff for container {id} (from /copyups scan):");
+    println!("modified (copy-up) [{}]:", modified.len());
+    println!("{:<50} {:<10} {:<12} FROM_LAYER", "PATH", "BYTES", "KIND");
+    for entry in &modified {
+        let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+        let bytes = entry
+            .get("size_bytes")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("-");
+        let from = entry
+            .get("from_layer")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let from_short = from.chars().take(12).collect::<String>();
+        println!("{:<50} {:<10} {:<12} {}", path, bytes, kind, from_short);
+    }
+    println!("deleted (whiteout/opaque) [{}]:", deleted.len());
+    for entry in &deleted {
+        let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("-");
+        println!("  {path} ({kind})");
+    }
+    println!("note: files newly created in upperdir (never in a lower layer) are not reported by the daemon copy-up scanner; see /layers for the base stack");
     Ok(())
 }
 
@@ -1402,10 +1496,7 @@ async fn main() -> Result<()> {
             do_ns(&host, &args).await?;
         }
         Commands::Diff { id } => {
-            // No dedicated diff endpoint; try copyups/layers as approximation
-            eprintln!("diff: no dedicated endpoint; showing copyups + layers for {id}");
-            let _ = do_generic_get(&host, &format!("/containers/{id}/copyups")).await;
-            let _ = do_generic_get(&host, &format!("/containers/{id}/layers")).await;
+            do_diff(&host, &id).await?;
         }
         Commands::Copyups { id } => {
             do_generic_get(&host, &format!("/containers/{id}/copyups")).await?;

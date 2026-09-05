@@ -87,4 +87,5 @@ function TabsContent({
   )
 }
 
+// oxlint-disable-next-line react/only-export-components — shadcn/ui pattern: variants intentionally co-exported with the components
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }

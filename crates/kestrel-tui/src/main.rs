@@ -496,8 +496,12 @@ struct App {
     // sparklines
     cpu_hist: VecDeque<u64>,
     mem_hist: VecDeque<u64>,
-    // uptime calc per container? use Instant of app start as fallback
+    // TUI session start (used only as an explicitly approximate uptime
+    // fallback — the daemon exposes no per-container start timestamp).
     start: Instant,
+    // last cpu usage sample per container for delta-based CPU%:
+    // id -> (usage_usec, sampled_at)
+    cpu_last: std::collections::HashMap<String, (u64, Instant)>,
 
     // stats per container id -> ContainerStats (for list CPU% + mem bar)
     stats_map: std::collections::HashMap<String, (f64, u64, String)>, // cpu%, mem_current, mem_max
@@ -535,6 +539,7 @@ impl App {
             cpu_hist: VecDeque::with_capacity(60),
             mem_hist: VecDeque::with_capacity(60),
             start: Instant::now(),
+            cpu_last: std::collections::HashMap::new(),
             stats_map: std::collections::HashMap::new(),
             error: None,
         }
@@ -586,18 +591,42 @@ impl App {
         self.status_since = Instant::now();
     }
 
-    fn uptime_for(&self, _c: &ContainerView) -> String {
-        // No real start time from API; approximate with app uptime for Running
-        // and show status-based placeholder. If we had cgroup creation time we'd use it.
-        // Keep deterministic for display.
+    fn uptime_for(&self, c: &ContainerView) -> String {
+        // The daemon exposes no per-container start timestamp, so there is
+        // no true container uptime to display. For non-running containers
+        // show the status; for running ones show an explicitly approximate
+        // TUI-session age so it cannot be mistaken for container uptime.
+        if c.status.to_lowercase() != "running" {
+            return c.status.clone();
+        }
         let secs = self.start.elapsed().as_secs();
         if secs < 60 {
-            format!("{secs}s")
+            format!("~{secs}s")
         } else if secs < 3600 {
-            format!("{}m", secs / 60)
+            format!("~{}m", secs / 60)
         } else {
-            format!("{}h", secs / 3600)
+            format!("~{}h", secs / 3600)
         }
+    }
+
+    fn cpu_percent(&mut self, id: &str, usage_usec: u64) -> f64 {
+        let now = Instant::now();
+        let pct = match self.cpu_last.get(id) {
+            Some((prev_usage, prev_at)) => {
+                let wall_usec = now.duration_since(*prev_at).as_micros() as f64;
+                if wall_usec > 0.0 {
+                    (usage_usec.saturating_sub(*prev_usage) as f64 / wall_usec) * 100.0
+                } else {
+                    0.0
+                }
+            }
+            None => 0.0,
+        };
+        self.cpu_last.insert(id.to_string(), (usage_usec, now));
+        let max = std::thread::available_parallelism()
+            .map(|n| n.get() as f64 * 100.0)
+            .unwrap_or(100.0);
+        pct.clamp(0.0, max)
     }
 }
 
@@ -1326,12 +1355,14 @@ fn exec_suspend_and_run(
     terminal: &mut Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
 ) -> Result<()> {
     suspend_terminal(terminal)?;
-    // try kestrel CLI first, fallback to /bin/sh
+    // Shell inside the container: $KESTREL_SHELL override, else /bin/sh.
+    let shell = std::env::var("KESTREL_SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    // try kestrel CLI first, fallback to local shell notice
     let kestrel_bin = find_kestrel_cli();
     let status = if let Some(bin) = kestrel_bin {
         // interactive exec via kestrel exec -it
         std::process::Command::new(bin)
-            .args(["exec", "-it", id, "--", "/bin/sh"])
+            .args(["exec", "-it", id, "--", &shell])
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -1341,7 +1372,8 @@ fn exec_suspend_and_run(
         eprintln!("press Enter to continue...");
         let mut buf = String::new();
         let _ = std::io::stdin().read_line(&mut buf);
-        std::process::Command::new("/bin/sh")
+        let local_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        std::process::Command::new(local_shell)
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -1475,8 +1507,8 @@ async fn main() -> Result<()> {
                         if app.cpu_hist.len() > 60 { app.cpu_hist.pop_front(); }
                         app.mem_hist.push_back(mem);
                         if app.mem_hist.len() > 60 { app.mem_hist.pop_front(); }
-                        // update list stats map
-                        let cpu_percent = 0.0; // could compute from delta; keep 0 for now, updated via pressure
+                        // update list stats map with delta-based CPU%
+                        let cpu_percent = app.cpu_percent(&id, cpu);
                         app.stats_map.insert(id.clone(), (cpu_percent, mem, cg.memory_max.clone()));
                         app.cgroup = Some(cg);
                     }
@@ -1509,7 +1541,8 @@ async fn main() -> Result<()> {
                 // also refresh stats for all containers for list CPU/mem bar (best-effort, limited to 5)
                 for c in app.containers.iter().take(5).cloned().collect::<Vec<_>>() {
                     if let Ok(Some(cg)) = api.get_cgroup(&c.id).await {
-                        app.stats_map.insert(c.id.clone(), (0.0, cg.memory_current, cg.memory_max));
+                        let pct = app.cpu_percent(&c.id, cg.cpu_stat.usage_usec);
+                        app.stats_map.insert(c.id.clone(), (pct, cg.memory_current, cg.memory_max));
                     }
                 }
             }
