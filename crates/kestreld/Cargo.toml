@@ -9,7 +9,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-toml = "0.8"
+toml = "1.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "net", "fs", "io-util", "signal", "sync", "time"] }
 clap = { version = "4", features = ["derive"] }
 # Plan called for axum 0.7 ("axum's own repo has a #[cfg(unix)] compile-test
