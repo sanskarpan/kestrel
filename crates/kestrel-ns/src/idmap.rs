@@ -83,28 +83,9 @@ pub fn render_map(maps: &[IdMapping]) -> String {
 mod tests {
     use super::*;
     use crate::test_util::run_isolated;
-    use nix::errno::Errno;
     use nix::sched::{unshare, CloneFlags};
     use nix::unistd::{getgid, getuid};
     use std::fs;
-
-    /// Enters a fresh unprivileged user namespace, or returns `false` when
-    /// the host kernel disallows it (stock GitHub Actions runners restrict
-    /// `CLONE_NEWUSER`). Callers skip the test in that case — the same
-    /// tests run for real in the Lima VM gate (`make test-root`), where
-    /// userns is enabled. Only `EPERM` skips; any other error still fails.
-    fn enter_test_userns() -> bool {
-        match unshare(CloneFlags::CLONE_NEWUSER) {
-            Ok(()) => true,
-            Err(Errno::EPERM) => {
-                eprintln!(
-                    "skipping userns test: unshare(CLONE_NEWUSER) got EPERM on this host; covered by the Lima VM gate"
-                );
-                false
-            }
-            Err(e) => panic!("unshare(CLONE_NEWUSER): {e}"),
-        }
-    }
 
     #[test]
     fn test_render_map_formats_lines() {
@@ -147,19 +128,16 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires unprivileged userns (Lima VM gate); stock CI runners block CLONE_NEWUSER"]
     fn test_setgroups_deny_required_before_gid_map() {
         // Proves the CVE-2014-8989 constraint empirically, in a real
         // unprivileged user namespace, so the ordering never gets "cleaned
         // up" by a future refactor. Must run in an isolated single-threaded
         // child (see test_util::run_isolated).
         run_isolated(|| {
-            // Capture host ids BEFORE unsharing: inside a fresh userns
-            // with no maps yet, getuid/getgid read back the overflow id.
             let uid = getuid();
             let gid = getgid();
-            if !enter_test_userns() {
-                return;
-            }
+            unshare(CloneFlags::CLONE_NEWUSER).expect("unshare(CLONE_NEWUSER)");
             let pid = nix::unistd::getpid();
 
             // Write uid_map directly (bypassing write_id_maps) so we can
@@ -177,13 +155,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires unprivileged userns (Lima VM gate); stock CI runners block CLONE_NEWUSER"]
     fn test_write_id_maps_end_to_end() {
         run_isolated(|| {
             let uid = getuid();
             let gid = getgid();
-            if !enter_test_userns() {
-                return;
-            }
+            unshare(CloneFlags::CLONE_NEWUSER).expect("unshare(CLONE_NEWUSER)");
             let pid = nix::unistd::getpid();
 
             write_id_maps(
