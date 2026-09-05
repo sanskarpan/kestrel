@@ -170,9 +170,13 @@ pub fn delete(id: &str, run_dir: &Path, data_dir: &Path, force: bool) -> Result<
         .is_some_and(|pid| nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok());
     if process_alive {
         if force {
-            if let Err(e) =
-                crate::kill::kill(id, run_dir, data_dir, nix::sys::signal::Signal::SIGKILL, true)
-            {
+            if let Err(e) = crate::kill::kill(
+                id,
+                run_dir,
+                data_dir,
+                nix::sys::signal::Signal::SIGKILL,
+                true,
+            ) {
                 errors.push(format!("force-kill: {e:#}"));
             }
             // Wait for the container to actually stop before proceeding —
@@ -259,7 +263,10 @@ pub fn delete(id: &str, run_dir: &Path, data_dir: &Path, force: bool) -> Result<
     if errors.is_empty() {
         let state_dir = run_dir.join(id);
         if let Err(e) = remove_dir_all_tolerant(&state_dir) {
-            errors.push(format!("removing state directory {}: {e:#}", state_dir.display()));
+            errors.push(format!(
+                "removing state directory {}: {e:#}",
+                state_dir.display()
+            ));
         }
         let snapshot_dir = data_dir.join("snapshots").join(id);
         if let Err(e) = remove_dir_all_tolerant(&snapshot_dir) {
@@ -611,7 +618,11 @@ mod tests {
         // which are legitimately absent here).
         let ns_dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(ns_dir.path()).unwrap();
-        std::fs::write(ns_dir.path().join(NsType::Uts.proc_name()), b"not a real pin").unwrap();
+        std::fs::write(
+            ns_dir.path().join(NsType::Uts.proc_name()),
+            b"not a real pin",
+        )
+        .unwrap();
 
         let errors = unpin_namespaces(ns_dir.path(), &ALL_NS_TYPES);
         assert_eq!(
@@ -619,7 +630,10 @@ mod tests {
             1,
             "exactly one type (Uts) had a pin file present at all, got: {errors:?}"
         );
-        assert!(errors[0].contains("Uts"), "unexpected error content: {errors:?}");
+        assert!(
+            errors[0].contains("Uts"),
+            "unexpected error content: {errors:?}"
+        );
     }
 
     #[test]
@@ -633,7 +647,9 @@ mod tests {
         assert!(!is_ignorable_unmount_error(&anyhow::Error::new(
             nix::errno::Errno::EPERM
         )));
-        assert!(!is_ignorable_unmount_error(&anyhow::anyhow!("some unrelated error")));
+        assert!(!is_ignorable_unmount_error(&anyhow::anyhow!(
+            "some unrelated error"
+        )));
     }
 
     #[test]
@@ -644,7 +660,9 @@ mod tests {
         assert!(!is_ignorable_not_found_error(&anyhow::Error::new(
             std::io::Error::from(std::io::ErrorKind::PermissionDenied)
         )));
-        assert!(!is_ignorable_not_found_error(&anyhow::anyhow!("some unrelated error")));
+        assert!(!is_ignorable_not_found_error(&anyhow::anyhow!(
+            "some unrelated error"
+        )));
     }
 
     #[test]

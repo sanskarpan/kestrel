@@ -214,8 +214,7 @@ mod layer_store_tests {
         store
             .ensure_layer("sha256:child", Some("sha256:parent"))
             .unwrap();
-        let parent =
-            fs::read_to_string(store.layer_dir("sha256:child").join("parent")).unwrap();
+        let parent = fs::read_to_string(store.layer_dir("sha256:child").join("parent")).unwrap();
         assert_eq!(parent, "sha256:parent");
     }
 
@@ -296,10 +295,16 @@ impl Snapshotter {
     /// Idempotent — safe to call again for the same `container_id` (e.g. on
     /// restart), since `create_dir_all` and `LayerStore::ensure_link` are
     /// both idempotent.
-    pub fn prepare_snapshot(&self, container_id: &str, lower_chain_ids: &[String]) -> Result<Snapshot> {
+    pub fn prepare_snapshot(
+        &self,
+        container_id: &str,
+        lower_chain_ids: &[String],
+    ) -> Result<Snapshot> {
         anyhow::ensure!(!container_id.is_empty(), "container_id must not be empty");
         anyhow::ensure!(
-            container_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            container_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
             "container_id {container_id:?} must be [A-Za-z0-9_-] only"
         );
 
@@ -331,7 +336,9 @@ mod snapshotter_tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = LayerStore::new(tmp.path().to_path_buf());
         store.ensure_layer("sha256:base", None).unwrap();
-        store.ensure_layer("sha256:top", Some("sha256:base")).unwrap();
+        store
+            .ensure_layer("sha256:top", Some("sha256:base"))
+            .unwrap();
         // Capture the expected short names independently of prepare_snapshot
         // itself (ensure_link is idempotent, so calling it again here just
         // returns the same cached names) so the assertion below is a real
@@ -358,7 +365,9 @@ mod snapshotter_tests {
     fn test_prepare_snapshot_rejects_empty_container_id() {
         let tmp = tempfile::tempdir().unwrap();
         let snapshotter = Snapshotter::new(tmp.path().to_path_buf(), false);
-        assert!(snapshotter.prepare_snapshot("", &["sha256:x".into()]).is_err());
+        assert!(snapshotter
+            .prepare_snapshot("", &["sha256:x".into()])
+            .is_err());
     }
 
     #[test]

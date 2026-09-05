@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 //! `kestreld` — the kestrel daemon. Owns container lifecycle orchestration,
 //! log capture, live attach, metrics/event streaming, and image management,
 //! exposed over both a Unix socket and a TCP address (SPEC.md §13).

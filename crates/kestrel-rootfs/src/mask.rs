@@ -22,7 +22,13 @@ pub const DEFAULT_MASKED: &[&str] = &[
     "/sys/devices/virtual/powercap",
 ];
 
-pub const DEFAULT_READONLY: &[&str] = &["/proc/bus", "/proc/fs", "/proc/irq", "/proc/sys", "/proc/sysrq-trigger"];
+pub const DEFAULT_READONLY: &[&str] = &[
+    "/proc/bus",
+    "/proc/fs",
+    "/proc/irq",
+    "/proc/sys",
+    "/proc/sysrq-trigger",
+];
 
 /// Hides `p` (relative to the container's rootfs, already joined by the
 /// caller) so it leaks no host information: directories get an empty
@@ -43,10 +49,21 @@ pub fn mask_path(p: &Path) -> Result<()> {
         // source/target combination; ENOTDIR alone is sufficient in
         // practice.
         Err(Errno::ENOTDIR) | Err(Errno::EISDIR) => {
-            mount(Some("tmpfs"), p, Some("tmpfs"), MsFlags::MS_RDONLY, Some("size=0k"))
-                .with_context(|| format!("mounting empty ro tmpfs over {}", p.display()))?;
+            mount(Some("tmpfs"), p, Some("tmpfs"), MsFlags::MS_RDONLY, Some("size=0k")).with_context(|| {
+                format!(
+                    "syscall mount(\"tmpfs\", target={}, MS_RDONLY, \"size=0k\") for masked path: failed to mount empty tmpfs over directory; hint: p must be a directory, check mount ns and CAP_SYS_ADMIN",
+                    p.display()
+                )
+            })?;
         }
-        Err(e) => return Err(e).with_context(|| format!("bind-mounting /dev/null over {}", p.display())),
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "syscall mount(MS_BIND, src=\"/dev/null\", target={}): failed to mask path; hint: target must exist and be a file (ENOTDIR means target is a directory, tmpfs fallback should have triggered), needs CAP_SYS_ADMIN",
+                    p.display()
+                )
+            })
+        }
         Ok(()) => {}
     }
     Ok(())
@@ -70,10 +87,12 @@ pub fn make_readonly(p: &Path) -> Result<()> {
 /// mount namespace — it does not perform that remount itself.
 pub fn apply_default_masks(rootfs: &Path) -> Result<()> {
     for p in DEFAULT_MASKED {
-        mask_path(&rootfs.join(p.trim_start_matches('/'))).with_context(|| format!("masking {p}"))?;
+        mask_path(&rootfs.join(p.trim_start_matches('/')))
+            .with_context(|| format!("masking {p}"))?;
     }
     for p in DEFAULT_READONLY {
-        make_readonly(&rootfs.join(p.trim_start_matches('/'))).with_context(|| format!("making {p} read-only"))?;
+        make_readonly(&rootfs.join(p.trim_start_matches('/')))
+            .with_context(|| format!("making {p} read-only"))?;
     }
     Ok(())
 }

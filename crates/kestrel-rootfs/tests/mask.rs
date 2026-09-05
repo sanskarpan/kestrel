@@ -18,7 +18,10 @@ fn test_mask_path_on_file_makes_it_read_as_empty() {
         mask_path(&secret).expect("mask_path on a file");
 
         let contents = fs::read(&secret).unwrap();
-        assert!(contents.is_empty(), "masked file must read as empty (bind-mounted over /dev/null)");
+        assert!(
+            contents.is_empty(),
+            "masked file must read as empty (bind-mounted over /dev/null)"
+        );
     });
 }
 
@@ -100,7 +103,10 @@ fn test_apply_default_masks_only_masks_paths_that_exist() {
             .expect("apply_default_masks must succeed even when most default paths are absent");
 
         let acpi_entries: Vec<_> = fs::read_dir(rootfs.join("proc/acpi")).unwrap().collect();
-        assert!(acpi_entries.is_empty(), "proc/acpi must be masked to an empty view");
+        assert!(
+            acpi_entries.is_empty(),
+            "proc/acpi must be masked to an empty view"
+        );
 
         assert!(
             fs::write(rootfs.join("proc/sys/new.txt"), b"x").is_err(),

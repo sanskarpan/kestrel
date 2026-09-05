@@ -125,7 +125,8 @@ fn set_nonblocking(fd: &OwnedFd) -> Result<()> {
     let raw = fd.as_raw_fd();
     let current = fcntl(raw, FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
     let current = OFlag::from_bits_truncate(current);
-    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK)).context("fcntl F_SETFL O_NONBLOCK")?;
+    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
+        .context("fcntl F_SETFL O_NONBLOCK")?;
     Ok(())
 }
 

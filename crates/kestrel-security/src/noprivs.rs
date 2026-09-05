@@ -18,9 +18,15 @@ mod tests {
     #[test]
     fn test_set_no_new_privs_is_observable_afterward() {
         kestrel_ns::test_util::run_isolated(|| {
-            assert!(!nix::sys::prctl::get_no_new_privs().unwrap(), "should start unset in a fresh process");
+            assert!(
+                !nix::sys::prctl::get_no_new_privs().unwrap(),
+                "should start unset in a fresh process"
+            );
             set_no_new_privs().expect("set_no_new_privs");
-            assert!(nix::sys::prctl::get_no_new_privs().unwrap(), "must be observably set afterward");
+            assert!(
+                nix::sys::prctl::get_no_new_privs().unwrap(),
+                "must be observably set afterward"
+            );
         });
     }
 }

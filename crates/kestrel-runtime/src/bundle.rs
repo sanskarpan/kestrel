@@ -45,7 +45,18 @@ mod tests {
 
         let bundle = load(dir.path()).expect("valid bundle should load");
         assert_eq!(bundle.path, dir.path());
-        assert_eq!(bundle.spec.spec.process().as_ref().unwrap().args().clone().unwrap(), vec!["sh".to_string()]);
+        assert_eq!(
+            bundle
+                .spec
+                .spec
+                .process()
+                .as_ref()
+                .unwrap()
+                .args()
+                .clone()
+                .unwrap(),
+            vec!["sh".to_string()]
+        );
     }
 
     #[test]
@@ -54,7 +65,9 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let mut spec = default_spec();
-        spec.set_process(Some(ProcessBuilder::default().args(vec![]).build().unwrap()));
+        spec.set_process(Some(
+            ProcessBuilder::default().args(vec![]).build().unwrap(),
+        ));
         write_config(dir.path(), &spec);
 
         let result = load(dir.path());

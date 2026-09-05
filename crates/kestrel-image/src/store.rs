@@ -56,7 +56,8 @@ impl ContentStore {
         // process (see `TMP_COUNTER` doc comment above).
         let unique = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let tmp_path = dir.join(format!(".tmp-{}-{}", std::process::id(), unique));
-        let tmp_file = fs::File::create(&tmp_path).with_context(|| format!("creating {}", tmp_path.display()))?;
+        let tmp_file = fs::File::create(&tmp_path)
+            .with_context(|| format!("creating {}", tmp_path.display()))?;
         let mut verifying = VerifyingReader::new(&mut reader);
         let mut writer = std::io::BufWriter::new(tmp_file);
 
@@ -81,8 +82,13 @@ impl ContentStore {
         }
 
         let final_path = self.blob_path(&actual);
-        fs::rename(&tmp_path, &final_path)
-            .with_context(|| format!("renaming {} to {}", tmp_path.display(), final_path.display()))?;
+        fs::rename(&tmp_path, &final_path).with_context(|| {
+            format!(
+                "renaming {} to {}",
+                tmp_path.display(),
+                final_path.display()
+            )
+        })?;
         Ok(actual)
     }
 
@@ -99,7 +105,11 @@ impl ContentStore {
     }
 
     pub fn remove_ref(&self, digest: &Digest, owner_id: &str) -> Result<()> {
-        let path = self.root.join("content/refs").join(digest.hex()).join(owner_id);
+        let path = self
+            .root
+            .join("content/refs")
+            .join(digest.hex())
+            .join(owner_id);
         match fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()), // already gone, fine
@@ -109,7 +119,9 @@ impl ContentStore {
 
     pub fn is_referenced(&self, digest: &Digest) -> bool {
         let dir = self.root.join("content/refs").join(digest.hex());
-        fs::read_dir(&dir).map(|mut d| d.next().is_some()).unwrap_or(false)
+        fs::read_dir(&dir)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
     }
 
     /// Deletes the blob if (and only if) nothing references it. Returns
@@ -130,10 +142,14 @@ impl ContentStore {
     /// root, per the OCI Image Layout spec — lets any OCI-compliant
     /// tool (not just kestrel) browse this store's images.
     pub fn write_oci_layout(&self, manifests: &[Digest]) -> Result<()> {
-        fs::create_dir_all(&self.root).with_context(|| format!("creating {}", self.root.display()))?;
+        fs::create_dir_all(&self.root)
+            .with_context(|| format!("creating {}", self.root.display()))?;
         let layout = serde_json::json!({ "imageLayoutVersion": "1.0.0" });
-        fs::write(self.root.join("oci-layout"), serde_json::to_vec_pretty(&layout)?)
-            .context("writing oci-layout")?;
+        fs::write(
+            self.root.join("oci-layout"),
+            serde_json::to_vec_pretty(&layout)?,
+        )
+        .context("writing oci-layout")?;
 
         let manifest_entries: Vec<_> = manifests
             .iter()
@@ -149,8 +165,11 @@ impl ContentStore {
             "schemaVersion": 2,
             "manifests": manifest_entries,
         });
-        fs::write(self.root.join("index.json"), serde_json::to_vec_pretty(&index)?)
-            .context("writing index.json")
+        fs::write(
+            self.root.join("index.json"),
+            serde_json::to_vec_pretty(&index)?,
+        )
+        .context("writing index.json")
     }
 }
 
@@ -175,13 +194,23 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = ContentStore::new(tmp.path().to_path_buf());
         let wrong = Digest::of_bytes(b"something else entirely");
-        let err = store.write_blob(Some(&wrong), std::io::Cursor::new(b"actual data")).unwrap_err();
+        let err = store
+            .write_blob(Some(&wrong), std::io::Cursor::new(b"actual data"))
+            .unwrap_err();
         assert!(err.to_string().contains("digest mismatch"));
         assert!(!store.has_blob(&wrong));
-        assert!(!store.has_blob(&Digest::of_bytes(b"actual data")), "no blob should be persisted under any digest on mismatch");
+        assert!(
+            !store.has_blob(&Digest::of_bytes(b"actual data")),
+            "no blob should be persisted under any digest on mismatch"
+        );
         // No stray temp files left behind.
-        let entries: Vec<_> = fs::read_dir(tmp.path().join("content/blobs/sha256")).unwrap().collect();
-        assert!(entries.is_empty(), "temp file must be cleaned up on digest mismatch");
+        let entries: Vec<_> = fs::read_dir(tmp.path().join("content/blobs/sha256"))
+            .unwrap()
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "temp file must be cleaned up on digest mismatch"
+        );
     }
 
     #[test]
@@ -190,7 +219,9 @@ mod tests {
         let store = ContentStore::new(tmp.path().to_path_buf());
         let data = b"verified data";
         let expected = Digest::of_bytes(data);
-        let actual = store.write_blob(Some(&expected), std::io::Cursor::new(data)).unwrap();
+        let actual = store
+            .write_blob(Some(&expected), std::io::Cursor::new(data))
+            .unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -198,17 +229,25 @@ mod tests {
     fn test_refcounting_blocks_deletion_while_referenced() {
         let tmp = tempfile::tempdir().unwrap();
         let store = ContentStore::new(tmp.path().to_path_buf());
-        let digest = store.write_blob(None, std::io::Cursor::new(b"shared layer")).unwrap();
+        let digest = store
+            .write_blob(None, std::io::Cursor::new(b"shared layer"))
+            .unwrap();
 
         store.add_ref(&digest, "image-a").unwrap();
         store.add_ref(&digest, "image-b").unwrap();
         assert!(store.is_referenced(&digest));
 
-        assert!(!store.remove_blob_if_unreferenced(&digest).unwrap(), "still referenced by image-b");
+        assert!(
+            !store.remove_blob_if_unreferenced(&digest).unwrap(),
+            "still referenced by image-b"
+        );
         assert!(store.has_blob(&digest));
 
         store.remove_ref(&digest, "image-a").unwrap();
-        assert!(store.is_referenced(&digest), "image-b's ref must still hold");
+        assert!(
+            store.is_referenced(&digest),
+            "image-b's ref must still hold"
+        );
         assert!(!store.remove_blob_if_unreferenced(&digest).unwrap());
 
         store.remove_ref(&digest, "image-b").unwrap();
@@ -221,13 +260,19 @@ mod tests {
     fn test_write_oci_layout_produces_valid_json() {
         let tmp = tempfile::tempdir().unwrap();
         let store = ContentStore::new(tmp.path().to_path_buf());
-        let digest = store.write_blob(None, std::io::Cursor::new(b"a manifest")).unwrap();
-        store.write_oci_layout(std::slice::from_ref(&digest)).unwrap();
+        let digest = store
+            .write_blob(None, std::io::Cursor::new(b"a manifest"))
+            .unwrap();
+        store
+            .write_oci_layout(std::slice::from_ref(&digest))
+            .unwrap();
 
-        let layout: serde_json::Value = serde_json::from_slice(&fs::read(tmp.path().join("oci-layout")).unwrap()).unwrap();
+        let layout: serde_json::Value =
+            serde_json::from_slice(&fs::read(tmp.path().join("oci-layout")).unwrap()).unwrap();
         assert_eq!(layout["imageLayoutVersion"], "1.0.0");
 
-        let index: serde_json::Value = serde_json::from_slice(&fs::read(tmp.path().join("index.json")).unwrap()).unwrap();
+        let index: serde_json::Value =
+            serde_json::from_slice(&fs::read(tmp.path().join("index.json")).unwrap()).unwrap();
         assert_eq!(index["manifests"][0]["digest"], digest.to_string());
     }
 }

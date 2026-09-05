@@ -71,8 +71,12 @@ pub async fn get_topology(State(state): State<Arc<AppState>>) -> Json<TopologyRe
 
     let mut by_bridge: HashMap<String, Vec<TopologyContainer>> = HashMap::new();
     for handle in handles {
-        let Some(network) = handle.meta.network else { continue };
-        let (Some(bridge_name), Some(ip)) = (network.bridge_name, network.ip) else { continue };
+        let Some(network) = handle.meta.network else {
+            continue;
+        };
+        let (Some(bridge_name), Some(ip)) = (network.bridge_name, network.ip) else {
+            continue;
+        };
         by_bridge
             .entry(bridge_name)
             .or_default()
@@ -81,7 +85,11 @@ pub async fn get_topology(State(state): State<Arc<AppState>>) -> Json<TopologyRe
 
     let bridges = by_bridge
         .into_iter()
-        .map(|(name, containers)| TopologyBridge { name, subnet: state.network.subnet.clone(), containers })
+        .map(|(name, containers)| TopologyBridge {
+            name,
+            subnet: state.network.subnet.clone(),
+            containers,
+        })
         .collect();
 
     Json(TopologyResponse { bridges })

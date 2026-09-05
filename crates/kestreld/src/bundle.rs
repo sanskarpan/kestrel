@@ -113,7 +113,10 @@ fn parse_network_mode(raw: Option<&str>) -> Result<NetworkMode, BundleError> {
 /// enforce the one-hop-only rule. A referenced id with no `meta.json` at
 /// all is a real client error (unknown container), not silently treated
 /// as `ModeKind::None`.
-async fn referenced_container_mode_kind(data_dir: &Path, referenced_id: &str) -> Result<ModeKind, BundleError> {
+async fn referenced_container_mode_kind(
+    data_dir: &Path,
+    referenced_id: &str,
+) -> Result<ModeKind, BundleError> {
     let meta_path = registry::meta_path(data_dir, referenced_id);
     if !tokio::fs::try_exists(&meta_path).await.unwrap_or(false) {
         return Err(BundleError::BadRequest(format!(
@@ -151,8 +154,9 @@ pub async fn materialize_bundle(
             (Some(chain_ids), None)
         }
         (None, Some(bundle_rootfs)) => {
-            let canon = std::fs::canonicalize(bundle_rootfs)
-                .with_context(|| format!("resolving bundle_rootfs path {}", bundle_rootfs.display()))?;
+            let canon = std::fs::canonicalize(bundle_rootfs).with_context(|| {
+                format!("resolving bundle_rootfs path {}", bundle_rootfs.display())
+            })?;
             (None, Some(canon))
         }
         (Some(_), Some(_)) => {
@@ -195,9 +199,17 @@ pub async fn materialize_bundle(
     // on must tear down the netns THIS call just created before
     // returning — the caller only learns about `created_netns_pin` via a
     // successful `Ok` return, which never happens on this path.
-    let inner_result = materialize_bundle_inner(id, req, data_dir, root_override, lower_chain_ids, &mode, network_path)
-        .await
-        .map_err(BundleError::from);
+    let inner_result = materialize_bundle_inner(
+        id,
+        req,
+        data_dir,
+        root_override,
+        lower_chain_ids,
+        &mode,
+        network_path,
+    )
+    .await
+    .map_err(BundleError::from);
     match inner_result {
         Ok(bundle_dir) => Ok(MaterializedBundle {
             bundle_dir,
@@ -224,8 +236,9 @@ pub async fn materialize_bundle(
 /// itself, via the content store) and returns the bottom-to-top chain-id
 /// sequence for its layers.
 async fn pull_image_chain_ids(image: &str, data_dir: &Path) -> Result<Vec<String>, BundleError> {
-    let reference = kestrel_image::reference::parse(image)
-        .map_err(|e| BundleError::BadRequest(format!("invalid image reference {image:?}: {e:#}")))?;
+    let reference = kestrel_image::reference::parse(image).map_err(|e| {
+        BundleError::BadRequest(format!("invalid image reference {image:?}: {e:#}"))
+    })?;
     // Same content root `kestrel-runtime`'s own `create.rs` fast path
     // reads (`LayerStore::new(data_dir)`) — both stores must agree on
     // this root so a layer pulled here is actually where `create()`'s
@@ -233,9 +246,10 @@ async fn pull_image_chain_ids(image: &str, data_dir: &Path) -> Result<Vec<String
     // goes looking for it.
     let store = kestrel_image::store::ContentStore::new(data_dir.to_path_buf());
     let layer_store = kestrel_rootfs::snapshot::LayerStore::new(data_dir.to_path_buf());
-    let chain_ids = kestrel_image::pull::pull_image(&reference, &store, &layer_store, false, discard_progress)
-        .await
-        .with_context(|| format!("pulling image {image:?}"))?;
+    let chain_ids =
+        kestrel_image::pull::pull_image(&reference, &store, &layer_store, false, discard_progress)
+            .await
+            .with_context(|| format!("pulling image {image:?}"))?;
     Ok(chain_ids)
 }
 
@@ -360,7 +374,11 @@ async fn materialize_bundle_inner(
     // silently no-ops a syscall rule on any arch not in this list, and
     // listing both this project's two real deployment targets costs
     // nothing on the arch that isn't actually running.
-    if let Some(syscalls) = req.seccomp_notify_syscalls.as_ref().filter(|s| !s.is_empty()) {
+    if let Some(syscalls) = req
+        .seccomp_notify_syscalls
+        .as_ref()
+        .filter(|s| !s.is_empty())
+    {
         let rule = LinuxSyscallBuilder::default()
             .names(syscalls.clone())
             .action(LinuxSeccompAction::ScmpActNotify)
@@ -439,9 +457,15 @@ async fn materialize_bundle_inner(
     // rather than derived on demand, and why `resolved_layer_chain_ids`
     // above is computed to mirror `kestrel-runtime create.rs`'s own
     // fallback exactly for the `bundle_rootfs` case).
-    registry::write_layers(data_dir, id, &registry::LayersMeta { chain_ids: resolved_layer_chain_ids })
-        .await
-        .with_context(|| format!("writing layers.json for {id}"))?;
+    registry::write_layers(
+        data_dir,
+        id,
+        &registry::LayersMeta {
+            chain_ids: resolved_layer_chain_ids,
+        },
+    )
+    .await
+    .with_context(|| format!("writing layers.json for {id}"))?;
 
     Ok(bundle_dir)
 }

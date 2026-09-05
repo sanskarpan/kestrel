@@ -1,8 +1,12 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
-use serde::{Deserialize, Serialize};
+use futures_util::{SinkExt, StreamExt};
+use serde::Serialize;
 use std::io::Write;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 // ---------------------------------------------------------------------------
 // Helpers: human size parsing, cpus -> cpu.max
@@ -31,7 +35,9 @@ pub fn parse_human_size(s: &str) -> Result<i64> {
     let num_str = &s[..num_end];
     let suffix = s[num_end..].trim().to_ascii_lowercase();
     let suffix = suffix.trim_end_matches('b');
-    let num: f64 = num_str.parse().with_context(|| format!("invalid size number: {num_str:?}"))?;
+    let num: f64 = num_str
+        .parse()
+        .with_context(|| format!("invalid size number: {num_str:?}"))?;
     let mult: f64 = match suffix {
         "" => 1.0,
         "k" | "kb" => 1024.0,
@@ -63,8 +69,12 @@ pub fn cpus_to_cpu_max(cpus_str: &str, period: u64) -> Result<String> {
 fn parse_port_mapping(s: &str) -> Result<(u16, u16)> {
     // Accept "host:container" or "hostPort:containerPort"
     if let Some((h, c)) = s.split_once(':') {
-        let hp: u16 = h.parse().with_context(|| format!("invalid host port: {h:?}"))?;
-        let cp: u16 = c.parse().with_context(|| format!("invalid container port: {c:?}"))?;
+        let hp: u16 = h
+            .parse()
+            .with_context(|| format!("invalid host port: {h:?}"))?;
+        let cp: u16 = c
+            .parse()
+            .with_context(|| format!("invalid container port: {c:?}"))?;
         Ok((hp, cp))
     } else {
         let p: u16 = s.parse().with_context(|| format!("invalid port: {s:?}"))?;
@@ -80,7 +90,12 @@ fn parse_port_mapping(s: &str) -> Result<(u16, u16)> {
 #[command(name = "kestrel", version, about = "kestrel container runtime CLI", long_about = None)]
 struct Cli {
     /// Daemon address (http://host:port or unix socket path). Env KESTREL_HOST overrides.
-    #[arg(long, global = true, env = "KESTREL_HOST", default_value = "http://127.0.0.1:7777")]
+    #[arg(
+        long,
+        global = true,
+        env = "KESTREL_HOST",
+        default_value = "http://127.0.0.1:7777"
+    )]
     host: String,
 
     /// Verbose output
@@ -374,7 +389,7 @@ fn base_url(host: &str) -> String {
     // If host is a unix socket path (starts with / or unix://), we still use http fallback
     if host.starts_with('/') || host.starts_with("unix://") {
         // reqwest cannot do UDS without custom connector; fallback to tcp
-        eprintln!("warning: unix socket {host} requested but using http://127.0.0.1:7777 fallback (UDS not wired via reqwest in this skeleton)");
+        eprintln!("warning: unix socket {host} requested; using the daemon's TCP fallback at http://127.0.0.1:7777");
         return "http://127.0.0.1:7777".to_string();
     }
     let mut h = host.trim_end_matches('/').to_string();
@@ -403,7 +418,11 @@ struct CreateRequest<'a> {
     published_ports: Vec<(u16, u16)>,
 }
 
-fn build_create_request<'a>(image: &'a str, cmd: &'a Vec<String>, args: &'a RunArgs) -> Result<(CreateRequest<'a>, Vec<(u16, u16)>)> {
+fn build_create_request<'a>(
+    image: &'a str,
+    cmd: &'a Vec<String>,
+    args: &'a RunArgs,
+) -> Result<(CreateRequest<'a>, Vec<(u16, u16)>)> {
     let memory_bytes = if let Some(m) = &args.memory {
         Some(parse_human_size(m)?)
     } else {
@@ -423,7 +442,11 @@ fn build_create_request<'a>(image: &'a str, cmd: &'a Vec<String>, args: &'a RunA
         ports.push(parse_port_mapping(p)?);
     }
     let cmd_opt = if cmd.is_empty() { None } else { Some(cmd) };
-    let env_opt = if args.env.is_empty() { None } else { Some(&args.env) };
+    let env_opt = if args.env.is_empty() {
+        None
+    } else {
+        Some(&args.env)
+    };
     Ok((
         CreateRequest {
             image: Some(image),
@@ -439,7 +462,11 @@ fn build_create_request<'a>(image: &'a str, cmd: &'a Vec<String>, args: &'a RunA
     ))
 }
 
-fn build_create_request_from_create<'a>(image: &'a str, cmd: &'a Vec<String>, args: &'a CreateArgs) -> Result<CreateRequest<'a>> {
+fn build_create_request_from_create<'a>(
+    image: &'a str,
+    cmd: &'a Vec<String>,
+    args: &'a CreateArgs,
+) -> Result<CreateRequest<'a>> {
     let memory_bytes = if let Some(m) = &args.memory {
         Some(parse_human_size(m)?)
     } else {
@@ -454,7 +481,11 @@ fn build_create_request_from_create<'a>(image: &'a str, cmd: &'a Vec<String>, ar
         ports.push(parse_port_mapping(p)?);
     }
     let cmd_opt = if cmd.is_empty() { None } else { Some(cmd) };
-    let env_opt = if args.env.is_empty() { None } else { Some(&args.env) };
+    let env_opt = if args.env.is_empty() {
+        None
+    } else {
+        Some(&args.env)
+    };
     Ok(CreateRequest {
         image: Some(image),
         cmd: cmd_opt,
@@ -518,17 +549,6 @@ async fn do_delete(host: &str, id: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize, Debug)]
-struct ContainerView {
-    id: String,
-    status: String,
-    pid: Option<i32>,
-    bundle: Option<String>,
-    tty: Option<bool>,
-    network_mode: Option<String>,
-    // allow extra fields
-}
-
 async fn do_ps(host: &str, args: &PsArgs) -> Result<()> {
     let url = format!("{}/containers", base_url(host));
     let resp = client().get(&url).send().await.context("GET /containers")?;
@@ -559,16 +579,32 @@ async fn do_ps(host: &str, args: &PsArgs) -> Result<()> {
         return Ok(());
     }
     // table
-    println!("{:<16} {:<10} {:<8} {:<20} {}", "CONTAINER ID", "STATUS", "PID", "IMAGE", "COMMAND");
+    println!(
+        "{:<16} {:<10} {:<8} {:<20} COMMAND",
+        "CONTAINER ID", "STATUS", "PID", "IMAGE"
+    );
     for c in &arr {
         let id = c.get("id").and_then(|x| x.as_str()).unwrap_or("-");
         let short = if id.len() > 12 { &id[..12] } else { id };
         let status = c.get("status").and_then(|x| x.as_str()).unwrap_or("-");
-        let pid = c.get("pid").map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
-        let image = c.get("image").or_else(|| c.get("bundle")).map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
+        let pid = c
+            .get("pid")
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let image = c
+            .get("image")
+            .or_else(|| c.get("bundle"))
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "-".to_string());
         // truncate image display
         let image_disp = image.trim_matches('"');
-        println!("{:<16} {:<10} {:<8} {:<20} {}", short, status, pid, truncate(image_disp, 20), "");
+        println!(
+            "{:<16} {:<10} {:<8} {:<20} ",
+            short,
+            status,
+            pid,
+            truncate(image_disp, 20)
+        );
     }
     Ok(())
 }
@@ -634,14 +670,16 @@ fn urlencoding(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
     out
 }
 
-async fn do_inspect(host: &str, id: &str) -> Result<()> {
+async fn do_inspect(host: &str, id: &str) -> Result<serde_json::Value> {
     let url = format!("{}/containers/{id}", base_url(host));
     let resp = client().get(&url).send().await.context("GET inspect")?;
     let status = resp.status();
@@ -649,19 +687,242 @@ async fn do_inspect(host: &str, id: &str) -> Result<()> {
     if !status.is_success() {
         anyhow::bail!("inspect failed {}: {body}", status);
     }
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
-    println!("{}", serde_json::to_string_pretty(&v)?);
+    let v: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+    Ok(v)
+}
+
+async fn fetch_json(host: &str, path: &str) -> Result<serde_json::Value> {
+    let resp = client()
+        .get(format!("{}{}", base_url(host), path))
+        .send()
+        .await
+        .with_context(|| format!("GET {path}"))?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("GET {path} failed {status}: {body}");
+    }
+    Ok(serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)))
+}
+
+fn render_template(template: &str, value: &serde_json::Value) -> String {
+    let mut output = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        output.push_str(&rest[..start]);
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("}}") else {
+            output.push_str(&rest[start..]);
+            return output;
+        };
+        let expression = after_start[..end].trim();
+        let path = expression.strip_prefix('.').unwrap_or(expression);
+        let resolved = path
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .try_fold(value, |current, part| current.get(part));
+        if let Some(resolved) = resolved {
+            let rendered = match resolved {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            output.push_str(&rendered);
+        }
+        rest = &after_start[end + 2..];
+    }
+    output.push_str(rest);
+    output
+}
+
+async fn do_explain(host: &str, id: &str) -> Result<()> {
+    let inspect = fetch_json(host, &format!("/containers/{id}")).await?;
+    println!(
+        "Container {}",
+        inspect.get("id").and_then(|v| v.as_str()).unwrap_or(id)
+    );
+    println!(
+        "  state: {}",
+        inspect.get("status").unwrap_or(&serde_json::Value::Null)
+    );
+    if let Some(pid) = inspect.get("pid") {
+        println!("  pid: {pid}");
+    }
+    for (label, path) in [
+        ("namespaces", "/namespaces"),
+        ("cgroup resources", "/cgroup"),
+        ("mounts", "/mounts"),
+        ("network", "/network"),
+    ] {
+        match fetch_json(host, &format!("/containers/{id}{path}")).await {
+            Ok(value) => {
+                println!("\n{label}:");
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            }
+            Err(error) => eprintln!("  {label}: unavailable ({error})"),
+        }
+    }
     Ok(())
+}
+
+fn websocket_url(host: &str, path: &str) -> String {
+    let base = base_url(host);
+    let base = base
+        .strip_prefix("http://")
+        .or_else(|| base.strip_prefix("https://"))
+        .unwrap_or(&base);
+    let scheme = if host.starts_with("https://") {
+        "wss"
+    } else {
+        "ws"
+    };
+    format!("{scheme}://{base}{path}")
+}
+
+async fn stream_attach(host: &str, id: &str, send_input: bool) -> Result<()> {
+    let url = websocket_url(host, &format!("/containers/{id}/attach"));
+    let (socket, _) = connect_async(&url)
+        .await
+        .with_context(|| format!("connecting to attach websocket {url}"))?;
+    let (mut sink, mut stream) = socket.split();
+    let input_task = if send_input {
+        Some(tokio::spawn(async move {
+            let mut stdin = tokio::io::stdin();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = match stdin.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                if sink
+                    .send(Message::Binary(buf[..n].to_vec().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            let _ = sink.close().await;
+        }))
+    } else {
+        None
+    };
+
+    let mut stdout = tokio::io::stdout();
+    while let Some(message) = stream.next().await {
+        match message.context("reading attach websocket")? {
+            Message::Binary(bytes) => {
+                stdout.write_all(&bytes).await?;
+                stdout.flush().await?;
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    if let Some(task) = input_task {
+        task.abort();
+    }
+    Ok(())
+}
+
+async fn tokio_tungstenite_attempt(
+    host: &str,
+    id: &str,
+    cmd: &[String],
+    tty: bool,
+    send_input: bool,
+) -> Result<Option<i32>> {
+    let url = websocket_url(host, &format!("/containers/{id}/exec"));
+    let (mut socket, _) = connect_async(&url)
+        .await
+        .with_context(|| format!("connecting to exec websocket {url}"))?;
+    socket
+        .send(Message::Text(
+            serde_json::json!({ "cmd": cmd, "tty": tty })
+                .to_string()
+                .into(),
+        ))
+        .await
+        .context("sending exec init message")?;
+    let (mut sink, mut stream) = socket.split();
+    let input_task = if send_input {
+        Some(tokio::spawn(async move {
+            let mut stdin = tokio::io::stdin();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = match stdin.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                if sink
+                    .send(Message::Binary(buf[..n].to_vec().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            let _ = sink.close().await;
+        }))
+    } else {
+        None
+    };
+
+    let mut stdout = tokio::io::stdout();
+    let mut exit_code = None;
+    while let Some(message) = stream.next().await {
+        match message.context("reading exec websocket")? {
+            Message::Binary(bytes) => {
+                stdout.write_all(&bytes).await?;
+                stdout.flush().await?;
+            }
+            Message::Text(text) => {
+                let value: serde_json::Value = serde_json::from_str(&text)
+                    .with_context(|| format!("parsing exec control message: {text}"))?;
+                match value.get("type").and_then(|v| v.as_str()) {
+                    Some("exit") => {
+                        exit_code = value
+                            .get("exit_code")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v as i32);
+                        break;
+                    }
+                    Some("error") => anyhow::bail!(
+                        "exec failed: {}",
+                        value
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown error")
+                    ),
+                    _ => {}
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    if let Some(task) = input_task {
+        task.abort();
+    }
+    Ok(exit_code)
 }
 
 async fn do_stats(host: &str, args: &StatsArgs) -> Result<()> {
     let ids = if args.ids.is_empty() {
         // list all
         let url = format!("{}/containers", base_url(host));
-        let resp = client().get(&url).send().await.context("GET containers for stats")?;
+        let resp = client()
+            .get(&url)
+            .send()
+            .await
+            .context("GET containers for stats")?;
         let body = resp.text().await?;
         let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
-        let arr = if v.is_array() { v.as_array().cloned().unwrap_or_default() } else { vec![] };
+        let arr = if v.is_array() {
+            v.as_array().cloned().unwrap_or_default()
+        } else {
+            vec![]
+        };
         arr.iter()
             .filter_map(|c| c.get("id").and_then(|x| x.as_str()).map(|s| s.to_string()))
             .collect::<Vec<_>>()
@@ -669,11 +930,19 @@ async fn do_stats(host: &str, args: &StatsArgs) -> Result<()> {
         args.ids.clone()
     };
 
-    let print_once = |id: &str, cgroup_body: &serde_json::Value, pressure_body: Option<&serde_json::Value>| {
+    let print_once = |id: &str,
+                      cgroup_body: &serde_json::Value,
+                      pressure_body: Option<&serde_json::Value>| {
         println!("== {} ==", id);
-        println!("{}", serde_json::to_string_pretty(cgroup_body).unwrap_or_else(|_| cgroup_body.to_string()));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(cgroup_body).unwrap_or_else(|_| cgroup_body.to_string())
+        );
         if let Some(p) = pressure_body {
-            println!("pressure: {}", serde_json::to_string_pretty(p).unwrap_or_else(|_| p.to_string()));
+            println!(
+                "pressure: {}",
+                serde_json::to_string_pretty(p).unwrap_or_else(|_| p.to_string())
+            );
         }
     };
 
@@ -703,13 +972,8 @@ async fn do_stats(host: &str, args: &StatsArgs) -> Result<()> {
         if args.no_stream {
             break;
         }
-        // stream mode: 1s interval, break after one iteration if single id? keep looping.
+        // Stream mode continuously refreshes until interrupted.
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        // for skeleton, just one iteration then break to avoid infinite loop in CI
-        // If user explicitly wants streaming, they'd run with --no-stream=false; we do one more then exit after 5? Keep simple: break after 1 when non-interactive.
-        // To avoid hanging tests, break after first iteration unless stdout is tty?
-        // For now break after 1 iteration – real streaming can be added later.
-        break;
     }
     Ok(())
 }
@@ -722,17 +986,37 @@ async fn do_images(host: &str) -> Result<()> {
     if !status.is_success() {
         anyhow::bail!("images failed {}: {body}", status);
     }
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+    let v: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
     // pretty table if possible
     if let Some(arr) = v.get("images").and_then(|x| x.as_array()) {
-        println!("{:<40} {:<16} {:<8} {}", "REFERENCE", "DIGEST", "LAYERS", "SIZE");
+        println!("{:<40} {:<16} {:<8} SIZE", "REFERENCE", "DIGEST", "LAYERS");
         for img in arr {
             let reference = img.get("reference").and_then(|x| x.as_str()).unwrap_or("-");
-            let digest = img.get("manifest_digest").and_then(|x| x.as_str()).unwrap_or("-");
-            let short = if digest.len() > 16 { &digest[..16] } else { digest };
-            let layers = img.get("layer_count").map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
-            let size = img.get("size_bytes").map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
-            println!("{:<40} {:<16} {:<8} {}", truncate(reference, 40), short, layers, size);
+            let digest = img
+                .get("manifest_digest")
+                .and_then(|x| x.as_str())
+                .unwrap_or("-");
+            let short = if digest.len() > 16 {
+                &digest[..16]
+            } else {
+                digest
+            };
+            let layers = img
+                .get("layer_count")
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let size = img
+                .get("size_bytes")
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            println!(
+                "{:<40} {:<16} {:<8} {}",
+                truncate(reference, 40),
+                short,
+                layers,
+                size
+            );
         }
     } else {
         println!("{}", serde_json::to_string_pretty(&v)?);
@@ -773,20 +1057,39 @@ async fn do_pull(host: &str, reference: &str) -> Result<()> {
                                     v.get("index").and_then(|x| x.as_u64()),
                                     v.get("total").and_then(|x| x.as_u64()),
                                 ) {
-                                    writeln!(stdout, "pulling layer {}/{} {}", idx + 1, total, &d[..12.min(d.len())])?;
+                                    writeln!(
+                                        stdout,
+                                        "pulling layer {}/{} {}",
+                                        idx + 1,
+                                        total,
+                                        &d[..12.min(d.len())]
+                                    )?;
                                 }
                             }
                             "LayerDownloaded" => {
-                                writeln!(stdout, "downloaded {} ({} bytes)", v.get("digest").and_then(|x| x.as_str()).unwrap_or(""), v.get("bytes").map(|x| x.to_string()).unwrap_or_default())?;
+                                writeln!(
+                                    stdout,
+                                    "downloaded {} ({} bytes)",
+                                    v.get("digest").and_then(|x| x.as_str()).unwrap_or(""),
+                                    v.get("bytes").map(|x| x.to_string()).unwrap_or_default()
+                                )?;
                             }
                             "LayerExtracted" => {
-                                writeln!(stdout, "extracted {}", v.get("chain_id").and_then(|x| x.as_str()).unwrap_or(""))?;
+                                writeln!(
+                                    stdout,
+                                    "extracted {}",
+                                    v.get("chain_id").and_then(|x| x.as_str()).unwrap_or("")
+                                )?;
                             }
                             "Complete" => {
                                 writeln!(stdout, "pull complete: {:?}", v.get("chain_ids"))?;
                             }
                             "Error" => {
-                                writeln!(stdout, "error: {}", v.get("message").and_then(|x| x.as_str()).unwrap_or(""))?;
+                                writeln!(
+                                    stdout,
+                                    "error: {}",
+                                    v.get("message").and_then(|x| x.as_str()).unwrap_or("")
+                                )?;
                             }
                             _ => {
                                 writeln!(stdout, "{data}")?;
@@ -821,7 +1124,11 @@ async fn do_rmi(host: &str, reference: &str) -> Result<()> {
     if !status.is_success() {
         // try with raw reference (no encoding) as fallback
         let url2 = format!("{}/images/{}", base_url(host), reference);
-        let resp2 = client().delete(&url2).send().await.context("DELETE image fallback")?;
+        let resp2 = client()
+            .delete(&url2)
+            .send()
+            .await
+            .context("DELETE image fallback")?;
         let s2 = resp2.status();
         let b2 = resp2.text().await?;
         if !s2.is_success() {
@@ -843,25 +1150,43 @@ async fn do_history(host: &str, reference: &str) -> Result<()> {
     if !status.is_success() {
         // fallback raw
         let url2 = format!("{}/images/{}/layers", base_url(host), reference);
-        let resp2 = client().get(&url2).send().await.context("GET history fallback")?;
+        let resp2 = client()
+            .get(&url2)
+            .send()
+            .await
+            .context("GET history fallback")?;
         let s2 = resp2.status();
         let b2 = resp2.text().await?;
         if !s2.is_success() {
             anyhow::bail!("history failed {}: {body} / fallback {}: {b2}", status, s2);
         }
-        let v: serde_json::Value = serde_json::from_str(&b2).unwrap_or(serde_json::Value::String(b2.clone()));
+        let v: serde_json::Value =
+            serde_json::from_str(&b2).unwrap_or(serde_json::Value::String(b2.clone()));
         println!("{}", serde_json::to_string_pretty(&v)?);
         return Ok(());
     }
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+    let v: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
     if let Some(arr) = v.get("layers").and_then(|x| x.as_array()) {
-        println!("{:<20} {:<16} {:<10} {}", "CHAIN_ID", "DIGEST", "SIZE", "MEDIA TYPE");
+        println!(
+            "{:<20} {:<16} {:<10} MEDIA TYPE",
+            "CHAIN_ID", "DIGEST", "SIZE"
+        );
         for l in arr {
             let chain = l.get("chain_id").and_then(|x| x.as_str()).unwrap_or("-");
             let digest = l.get("digest").and_then(|x| x.as_str()).unwrap_or("-");
-            let size = l.get("size").map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
+            let size = l
+                .get("size")
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "-".to_string());
             let mt = l.get("media_type").and_then(|x| x.as_str()).unwrap_or("-");
-            println!("{:<20} {:<16} {:<10} {}", truncate(chain, 20), truncate(digest, 16), size, mt);
+            println!(
+                "{:<20} {:<16} {:<10} {}",
+                truncate(chain, 20),
+                truncate(digest, 16),
+                size,
+                mt
+            );
         }
     } else {
         println!("{}", serde_json::to_string_pretty(&v)?);
@@ -878,13 +1203,18 @@ async fn do_ns(host: &str, args: &NsArgs) -> Result<()> {
         }
         Some("tree") => {
             let url = format!("{}/system/namespaces", base_url(host));
-            let resp = client().get(&url).send().await.context("GET /system/namespaces")?;
+            let resp = client()
+                .get(&url)
+                .send()
+                .await
+                .context("GET /system/namespaces")?;
             let status = resp.status();
             let body = resp.text().await?;
             if !status.is_success() {
                 anyhow::bail!("ns tree failed: {body}");
             }
-            let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+            let v: serde_json::Value =
+                serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
             println!("{}", serde_json::to_string_pretty(&v)?);
         }
         Some(id) => {
@@ -895,16 +1225,25 @@ async fn do_ns(host: &str, args: &NsArgs) -> Result<()> {
             if !status.is_success() {
                 anyhow::bail!("ns failed: {body}");
             }
-            let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+            let v: serde_json::Value =
+                serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
             if let Some(arr) = v.get("namespaces").and_then(|x| x.as_array()) {
-                println!("{:<10} {:<20} {}", "TYPE", "INODE", "SHARED_WITH");
+                println!("{:<10} {:<20} SHARED_WITH", "TYPE", "INODE");
                 for ns in arr {
                     let t = ns.get("ns_type").and_then(|x| x.as_str()).unwrap_or("-");
-                    let inode = ns.get("inode").map(|x| x.to_string()).unwrap_or_else(|| "-".to_string());
+                    let inode = ns
+                        .get("inode")
+                        .map(|x| x.to_string())
+                        .unwrap_or_else(|| "-".to_string());
                     let shared = ns
                         .get("shared_with")
                         .and_then(|x| x.as_array())
-                        .map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(","))
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str())
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        })
                         .unwrap_or_default();
                     println!("{:<10} {:<20} {}", t, inode, shared);
                 }
@@ -918,13 +1257,18 @@ async fn do_ns(host: &str, args: &NsArgs) -> Result<()> {
 
 async fn do_generic_get(host: &str, path: &str) -> Result<()> {
     let url = format!("{}{}", base_url(host), path);
-    let resp = client().get(&url).send().await.with_context(|| format!("GET {path}"))?;
+    let resp = client()
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("GET {path}"))?;
     let status = resp.status();
     let body = resp.text().await?;
     if !status.is_success() {
         anyhow::bail!("GET {path} failed {}: {body}", status);
     }
-    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+    let v: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
     println!("{}", serde_json::to_string_pretty(&v)?);
     Ok(())
 }
@@ -956,45 +1300,22 @@ async fn main() -> Result<()> {
             println!("{id}");
             do_start(&host, &id).await?;
             if !args.detach {
-                // Attach: stream logs follow
-                if tty {
-                    eprintln!("container {id} started with tty (attach via ws not yet implemented in CLI skeleton)");
+                stream_attach(&host, &id, tty && args.interactive).await?;
+                let inspect = fetch_json(&host, &format!("/containers/{id}")).await?;
+                let code = inspect
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                if rm {
+                    do_delete(&host, &id, true).await?;
                 }
-                // For non-detached, follow logs until exit then optionally rm
-                // Simple: poll status until stopped
-                loop {
-                    let url = format!("{}/containers/{id}", base_url(&host));
-                    let resp = client().get(&url).send().await;
-                    match resp {
-                        Ok(r) if r.status().is_success() => {
-                            let body = r.text().await.unwrap_or_default();
-                            let v: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-                            let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
-                            if status == "Stopped" || status == "stopped" {
-                                let code = v.get("exit_code").and_then(|x| x.as_i64()).unwrap_or(0);
-                                eprintln!("container {id} exited with code {code}");
-                                if rm {
-                                    let _ = do_delete(&host, &id, true).await;
-                                }
-                                if code != 0 {
-                                    std::process::exit(code as i32);
-                                }
-                                break;
-                            }
-                        }
-                        _ => break,
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                }
-                // Also stream logs one shot
-                let logs_url = format!("{}/containers/{id}/logs", base_url(&host));
-                if let Ok(resp) = client().get(&logs_url).send().await {
-                    if let Ok(body) = resp.text().await {
-                        print!("{body}");
-                    }
+                if code != 0 {
+                    std::process::exit(code as i32);
                 }
             } else if rm {
-                eprintln!("warning: --rm with -d: container will not be auto-removed until it exits (no daemon-side gc yet)");
+                eprintln!(
+                    "warning: --rm with -d requires daemon-side cleanup after the process exits"
+                );
             }
         }
         Commands::Create(args) => {
@@ -1019,7 +1340,11 @@ async fn main() -> Result<()> {
             println!("{id}");
         }
         Commands::Kill { id, signal, all: _ } => {
-            let url = format!("{}/containers/{id}/kill?signal={}", base_url(&host), urlencoding(&signal));
+            let url = format!(
+                "{}/containers/{id}/kill?signal={}",
+                base_url(&host),
+                urlencoding(&signal)
+            );
             let resp = client().post(&url).send().await.context("POST kill")?;
             let status = resp.status();
             let body = resp.text().await?;
@@ -1036,35 +1361,12 @@ async fn main() -> Result<()> {
             if args.cmd.is_empty() {
                 anyhow::bail!("exec requires a command");
             }
-            // Skeleton: exec via websocket not yet fully wired; try HTTP fallback
-            // We attempt websocket via tungstenite for basic echo
-            let id = args.id.clone();
-            eprintln!("exec {id} {:?} (tty={} interactive={})", args.cmd, args.tty, args.interactive);
-            // Try WS endpoint: GET /containers/:id/exec upgraded
-            // For skeleton we just inform user and attempt simple HTTP POST fallback (will 404 gracefully)
-            let url = format!("http://{}/containers/{id}/exec", base_url(&host).trim_start_matches("http://").trim_start_matches("https://"));
-            // Use reqwest to attempt upgrade – will fail but we show message
-            let ws_url = format!("ws://{}/containers/{id}/exec", base_url(&host).trim_start_matches("http://").trim_start_matches("https://"));
-            eprintln!("attempting websocket exec at {ws_url} (if daemon supports WS, this skeleton would bridge stdio)");
-            // Minimal: try to connect via tokio-tungstenite
-            match tokio_tungstenite_attempt(&ws_url, &args.cmd, args.tty).await {
-                Ok(()) => {}
-                Err(e) => {
-                    eprintln!("exec WS failed (expected in skeleton): {e:#}");
-                    eprintln!("hint: exec requires daemon WS support; CLI skeleton compiled but not fully bridging");
-                    // Fallback: try raw HTTP POST to same endpoint as POST (some daemons accept POST)
-                    let fallback_url = format!("{}/containers/{id}/exec", base_url(&host));
-                    let resp = client()
-                        .post(&fallback_url)
-                        .json(&serde_json::json!({ "cmd": args.cmd, "tty": args.tty }))
-                        .send()
-                        .await;
-                    if let Ok(r) = resp {
-                        let b = r.text().await.unwrap_or_default();
-                        println!("{b}");
-                    }
-                    let _ = url;
-                }
+            let code =
+                tokio_tungstenite_attempt(&host, &args.id, &args.cmd, args.tty, args.interactive)
+                    .await?
+                    .unwrap_or(0);
+            if code != 0 {
+                std::process::exit(code);
             }
         }
         Commands::Ps(args) => {
@@ -1074,9 +1376,11 @@ async fn main() -> Result<()> {
             do_logs(&host, &args).await?;
         }
         Commands::Inspect(args) => {
-            do_inspect(&host, &args.id).await?;
+            let value = do_inspect(&host, &args.id).await?;
             if let Some(fmt) = args.format {
-                eprintln!("--format {fmt} ignored (go-template not implemented in skeleton)");
+                println!("{}", render_template(&fmt, &value));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&value)?);
             }
         }
         Commands::Stats(args) => {
@@ -1111,7 +1415,6 @@ async fn main() -> Result<()> {
                 loop {
                     do_generic_get(&host, &format!("/containers/{}/pressure", args.id)).await?;
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    break; // skeleton: one iteration
                 }
             } else {
                 do_generic_get(&host, &format!("/containers/{}/pressure", args.id)).await?;
@@ -1132,23 +1435,26 @@ async fn main() -> Result<()> {
             do_generic_get(&host, "/system/topology").await?;
         }
         Commands::Explain { id } => {
-            // No dedicated explain endpoint; show inspect + cgroup + namespaces as narrative
-            eprintln!("explain {id}: replaying creation trace (skeleton – showing inspect + namespaces + cgroup)");
-            let _ = do_generic_get(&host, &format!("/containers/{id}")).await;
-            let _ = do_generic_get(&host, &format!("/containers/{id}/namespaces")).await;
-            let _ = do_generic_get(&host, &format!("/containers/{id}/cgroup")).await;
-            let _ = do_generic_get(&host, &format!("/containers/{id}/mounts")).await;
+            do_explain(&host, &id).await?;
         }
         Commands::Restart { id } => {
             let stop_url = format!("{}/containers/{id}/stop", base_url(&host));
             let start_url = format!("{}/containers/{id}/start", base_url(&host));
-            let r1 = client().post(&stop_url).send().await.context("POST stop for restart")?;
+            let r1 = client()
+                .post(&stop_url)
+                .send()
+                .await
+                .context("POST stop for restart")?;
             let s1 = r1.status();
             let b = r1.text().await.unwrap_or_default();
             if !s1.is_success() {
                 anyhow::bail!("restart stop failed: {b}");
             }
-            let r2 = client().post(&start_url).send().await.context("POST start for restart")?;
+            let r2 = client()
+                .post(&start_url)
+                .send()
+                .await
+                .context("POST start for restart")?;
             let s2 = r2.status();
             let b2 = r2.text().await.unwrap_or_default();
             if !s2.is_success() {
@@ -1178,15 +1484,15 @@ async fn main() -> Result<()> {
         }
         Commands::Completion { shell } => {
             let mut cmd = Cli::command();
-            generate(Shell::from(shell), &mut cmd, "kestrel", &mut std::io::stdout());
+            generate(
+                Shell::from(shell),
+                &mut cmd,
+                "kestrel",
+                &mut std::io::stdout(),
+            );
         }
     }
     Ok(())
-}
-
-async fn tokio_tungstenite_attempt(ws_url: &str, cmd: &[String], tty: bool) -> Result<()> {
-    let _ = (ws_url, cmd, tty);
-    anyhow::bail!("tokio-tungstenite not wired in this skeleton build (add dependency to enable full exec -it)")
 }
 
 #[cfg(test)]
@@ -1196,12 +1502,18 @@ mod tests {
     #[test]
     fn test_parse_human_size() {
         assert_eq!(parse_human_size("512m").unwrap(), 512 * 1024 * 1024);
-        assert_eq!(parse_human_size("1.5g").unwrap(), (1.5_f64 * 1024.0 * 1024.0 * 1024.0).round() as i64);
+        assert_eq!(
+            parse_human_size("1.5g").unwrap(),
+            (1.5_f64 * 1024.0 * 1024.0 * 1024.0).round() as i64
+        );
         assert_eq!(parse_human_size("1024").unwrap(), 1024);
         assert_eq!(parse_human_size("1k").unwrap(), 1024);
         assert_eq!(parse_human_size("2G").unwrap(), 2 * 1024 * 1024 * 1024);
         assert_eq!(parse_human_size("256M").unwrap(), 256 * 1024 * 1024);
-        assert_eq!(parse_human_size("1.5g").unwrap(), parse_human_size("1536m").unwrap());
+        assert_eq!(
+            parse_human_size("1.5g").unwrap(),
+            parse_human_size("1536m").unwrap()
+        );
     }
 
     #[test]

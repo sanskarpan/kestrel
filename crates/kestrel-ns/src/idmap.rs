@@ -41,8 +41,12 @@ pub fn write_id_maps(pid: Pid, uid_maps: &[IdMapping], gid_maps: &[IdMapping]) -
 
     let base = format!("/proc/{pid}");
 
-    fs::write(format!("{base}/uid_map"), render_map(uid_maps))
-        .with_context(|| format!("writing uid_map for pid {pid}: {uid_maps:?}"))?;
+    fs::write(format!("{base}/uid_map"), render_map(uid_maps)).with_context(|| {
+        format!(
+            "syscall write(fd={base}/uid_map, data={:?}) for pid {pid}: failed; hint: /proc/<pid>/uid_map accepts exactly one write, format '<container_id> <host_id> <size>' per line, requires CAP_SETUID in parent ns",
+            render_map(uid_maps)
+        )
+    })?;
 
     // Deny setgroups before gid_map — see CVE-2014-8989 note above.
     match fs::write(format!("{base}/setgroups"), "deny") {
@@ -50,11 +54,21 @@ pub fn write_id_maps(pid: Pid, uid_maps: &[IdMapping], gid_maps: &[IdMapping]) -
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             tracing::debug!(pid = %pid, "setgroups file absent, assuming pre-3.19 kernel");
         }
-        Err(e) => return Err(e).context("denying setgroups"),
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "syscall write(fd={base}/setgroups, data=\"deny\") for pid {pid}: failed (CVE-2014-8989 ordering: setgroups=deny must precede gid_map); hint: kernel may lack setgroups file (pre-3.19) or permission denied"
+                )
+            })
+        }
     }
 
-    fs::write(format!("{base}/gid_map"), render_map(gid_maps))
-        .with_context(|| format!("writing gid_map for pid {pid}: {gid_maps:?}"))?;
+    fs::write(format!("{base}/gid_map"), render_map(gid_maps)).with_context(|| {
+        format!(
+            "syscall write(fd={base}/gid_map, data={:?}) for pid {pid}: failed; hint: requires setgroups=deny first (EPERM if missed), single write only, check /etc/subuid/gid ranges",
+            render_map(gid_maps)
+        )
+    })?;
     Ok(())
 }
 

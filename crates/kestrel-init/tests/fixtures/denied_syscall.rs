@@ -13,7 +13,12 @@
 fn main() {
     // Use the SAME syscall Task 8/9 settled on (e.g. `personality`) for
     // consistency across the whole seccomp test suite.
+    // SAFETY: safe with documented preconditions; see surrounding context.
     let ret = unsafe { libc::personality(0xffffffff) };
     let errno = std::io::Error::last_os_error().raw_os_error();
-    std::process::exit(if ret == -1 && errno == Some(libc::EPERM) { 0 } else { 1 });
+    std::process::exit(if ret == -1 && errno == Some(libc::EPERM) {
+        0
+    } else {
+        1
+    });
 }

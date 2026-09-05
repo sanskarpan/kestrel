@@ -40,18 +40,29 @@ pub struct RegistryClient {
 impl RegistryClient {
     pub fn new() -> Result<Self> {
         let http = Self::build_http_client()?;
-        Ok(RegistryClient { http, token: tokio::sync::RwLock::new(None), base_url_override: None })
+        Ok(RegistryClient {
+            http,
+            token: tokio::sync::RwLock::new(None),
+            base_url_override: None,
+        })
     }
 
     /// See `base_url_override`'s doc comment. `base_url` is used as-is,
     /// e.g. `http://127.0.0.1:PORT` — no scheme is added.
     pub fn with_base_url(base_url: impl Into<String>) -> Result<Self> {
         let http = Self::build_http_client()?;
-        Ok(RegistryClient { http, token: tokio::sync::RwLock::new(None), base_url_override: Some(base_url.into()) })
+        Ok(RegistryClient {
+            http,
+            token: tokio::sync::RwLock::new(None),
+            base_url_override: Some(base_url.into()),
+        })
     }
 
     fn build_http_client() -> Result<reqwest::Client> {
-        reqwest::Client::builder().timeout(Duration::from_secs(30)).build().context("building HTTP client")
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("building HTTP client")
     }
 
     fn base_url(&self, reference: &ImageReference) -> String {
@@ -62,11 +73,21 @@ impl RegistryClient {
     }
 
     fn manifest_url(&self, reference: &ImageReference) -> String {
-        format!("{}/v2/{}/manifests/{}", self.base_url(reference), reference.repository, reference.manifest_reference())
+        format!(
+            "{}/v2/{}/manifests/{}",
+            self.base_url(reference),
+            reference.repository,
+            reference.manifest_reference()
+        )
     }
 
     fn blob_url(&self, reference: &ImageReference, digest: &Digest) -> String {
-        format!("{}/v2/{}/blobs/{}", self.base_url(reference), reference.repository, digest)
+        format!(
+            "{}/v2/{}/blobs/{}",
+            self.base_url(reference),
+            reference.repository,
+            digest
+        )
     }
 
     /// A GET request carrying the current bearer token, if any. Callers
@@ -102,7 +123,10 @@ impl RegistryClient {
         url: &str,
         configure: impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
     ) -> Result<reqwest::Response> {
-        let resp = configure(self.build_get(url).await).send().await.context("sending request")?;
+        let resp = configure(self.build_get(url).await)
+            .send()
+            .await
+            .context("sending request")?;
         if resp.status() != StatusCode::UNAUTHORIZED {
             return Ok(resp);
         }
@@ -110,9 +134,14 @@ impl RegistryClient {
         let Some(challenge) = parse_www_authenticate(resp.headers())? else {
             return Ok(resp); // 401 with no bearer challenge — nothing more we can do
         };
-        let token = fetch_token(&self.http, &challenge).await.context("fetching auth token")?;
+        let token = fetch_token(&self.http, &challenge)
+            .await
+            .context("fetching auth token")?;
         *self.token.write().await = Some(token);
-        configure(self.build_get(url).await).send().await.context("retrying request with auth token")
+        configure(self.build_get(url).await)
+            .send()
+            .await
+            .context("retrying request with auth token")
     }
 
     /// Fetches a manifest (or index) as raw bytes plus its content digest
@@ -121,10 +150,19 @@ impl RegistryClient {
     /// what actually proves the bytes we received are what we think they
     /// are, matching this project's "verify, don't trust the transport"
     /// bias elsewhere).
-    pub async fn fetch_manifest_bytes(&self, reference: &ImageReference) -> Result<(Vec<u8>, Digest, String)> {
+    pub async fn fetch_manifest_bytes(
+        &self,
+        reference: &ImageReference,
+    ) -> Result<(Vec<u8>, Digest, String)> {
         let url = self.manifest_url(reference);
-        let resp = self.get_with_auth(&url, |req| req.header(reqwest::header::ACCEPT, MANIFEST_ACCEPT_HEADER)).await?;
-        let resp = resp.error_for_status().context("manifest fetch returned an error status")?;
+        let resp = self
+            .get_with_auth(&url, |req| {
+                req.header(reqwest::header::ACCEPT, MANIFEST_ACCEPT_HEADER)
+            })
+            .await?;
+        let resp = resp
+            .error_for_status()
+            .context("manifest fetch returned an error status")?;
         let media_type = resp
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -171,13 +209,18 @@ impl RegistryClient {
 
             if resp.status().is_server_error() || resp.status() == StatusCode::TOO_MANY_REQUESTS {
                 if attempt >= MAX_BLOB_DOWNLOAD_ATTEMPTS {
-                    anyhow::bail!("blob download failed after {attempt} attempts: {}", resp.status());
+                    anyhow::bail!(
+                        "blob download failed after {attempt} attempts: {}",
+                        resp.status()
+                    );
                 }
                 let backoff = Duration::from_millis(200 * 2u64.pow(attempt - 1));
                 tokio::time::sleep(backoff).await;
                 continue;
             }
-            let resp = resp.error_for_status().context("blob download returned an error status")?;
+            let resp = resp
+                .error_for_status()
+                .context("blob download returned an error status")?;
 
             let streamed_digest = stream_to_file(resp, dest, resume_from).await?;
 
@@ -210,7 +253,11 @@ impl RegistryClient {
 /// it arrives. Returns the digest of just the bytes streamed in THIS
 /// call; see `download_blob_verified` for why that's only usable
 /// directly in the non-resume case.
-async fn stream_to_file(resp: reqwest::Response, dest: &Path, resume_from: Option<u64>) -> Result<Digest> {
+async fn stream_to_file(
+    resp: reqwest::Response,
+    dest: &Path,
+    resume_from: Option<u64>,
+) -> Result<Digest> {
     use sha2::{Digest as _, Sha256};
     use tokio::io::AsyncWriteExt;
 
@@ -222,7 +269,9 @@ async fn stream_to_file(resp: reqwest::Response, dest: &Path, resume_from: Optio
             .await
             .with_context(|| format!("opening {} to resume download", dest.display()))?
     } else {
-        tokio::fs::File::create(dest).await.with_context(|| format!("creating {}", dest.display()))?
+        tokio::fs::File::create(dest)
+            .await
+            .with_context(|| format!("creating {}", dest.display()))?
     };
 
     let mut hasher = Sha256::new();
@@ -234,7 +283,9 @@ async fn stream_to_file(resp: reqwest::Response, dest: &Path, resume_from: Optio
     }
     file.flush().await.context("flushing blob file")?;
 
-    format!("sha256:{:x}", hasher.finalize()).parse().context("formatting streamed-chunk digest")
+    format!("sha256:{:x}", hasher.finalize())
+        .parse()
+        .context("formatting streamed-chunk digest")
 }
 
 /// Re-opens `path` and hashes its ENTIRE contents from the start. `sha2`'s
@@ -249,9 +300,11 @@ async fn stream_to_file(resp: reqwest::Response, dest: &Path, resume_from: Optio
 async fn hash_whole_file(path: &Path) -> Result<Digest> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || -> Result<Digest> {
-        let file = std::fs::File::open(&path).with_context(|| format!("opening {} to verify", path.display()))?;
+        let file = std::fs::File::open(&path)
+            .with_context(|| format!("opening {} to verify", path.display()))?;
         let mut reader = VerifyingReader::new(file);
-        std::io::copy(&mut reader, &mut std::io::sink()).with_context(|| format!("hashing {}", path.display()))?;
+        std::io::copy(&mut reader, &mut std::io::sink())
+            .with_context(|| format!("hashing {}", path.display()))?;
         Ok(reader.finish())
     })
     .await

@@ -66,15 +66,24 @@ pub fn stage_rootfs(data_dir: &Path, bootstrap: &Bootstrap) -> Result<PathBuf> {
     )
     .context("making / private (required before any staging mount, and again before pivot_root)")?;
 
-    let snapshotter = snapshot::Snapshotter::new(data_dir.to_path_buf(), bootstrap.mount_plan.rootless);
+    let snapshotter =
+        snapshot::Snapshotter::new(data_dir.to_path_buf(), bootstrap.mount_plan.rootless);
     let snap = snapshotter
-        .prepare_snapshot(&bootstrap.container_id, &bootstrap.mount_plan.lower_chain_ids)
+        .prepare_snapshot(
+            &bootstrap.container_id,
+            &bootstrap.mount_plan.lower_chain_ids,
+        )
         .context("prepare_snapshot")?;
-    overlay::mount_overlay(data_dir, &snap, bootstrap.mount_plan.rootless, false, false).context("mount_overlay")?;
+    overlay::mount_overlay(data_dir, &snap, bootstrap.mount_plan.rootless, false, false)
+        .context("mount_overlay")?;
     mounts::setup_standard_mounts(&snap.merged).context("setup_standard_mounts")?;
     mask::apply_default_masks(&snap.merged).context("apply_default_masks")?;
-    mounts::bind_mount_file(&bootstrap.fifo_host_path, &snap.merged, &bootstrap.fifo_container_path)
-        .context("bind-mounting exec fifo into the container")?;
+    mounts::bind_mount_file(
+        &bootstrap.fifo_host_path,
+        &snap.merged,
+        &bootstrap.fifo_container_path,
+    )
+    .context("bind-mounting exec fifo into the container")?;
     Ok(snap.merged)
 }
 
@@ -121,7 +130,8 @@ pub fn apply_hostname_and_time(bootstrap: &Bootstrap) -> Result<()> {
     if !bootstrap.timens_offsets.is_empty() {
         let mut content = bootstrap.timens_offsets.join("\n");
         content.push('\n');
-        std::fs::write("/proc/self/timens_offsets", content).context("writing /proc/self/timens_offsets")?;
+        std::fs::write("/proc/self/timens_offsets", content)
+            .context("writing /proc/self/timens_offsets")?;
     }
     Ok(())
 }
@@ -136,11 +146,17 @@ mod tests {
     fn sample_bootstrap(hostname: Option<&str>) -> Bootstrap {
         Bootstrap {
             container_id: "c1".into(),
-            mount_plan: MountPlan { lower_chain_ids: vec![], rootless: false },
+            mount_plan: MountPlan {
+                lower_chain_ids: vec![],
+                rootless: false,
+            },
             process: Process::default(),
             capabilities: None,
             seccomp: None,
-            hooks: HookSet { create_container: vec![], start_container: vec![] },
+            hooks: HookSet {
+                create_container: vec![],
+                start_container: vec![],
+            },
             hostname: hostname.map(String::from),
             timens_offsets: vec![],
             fifo_host_path: "/run/kestrel/c1/exec.fifo".into(),

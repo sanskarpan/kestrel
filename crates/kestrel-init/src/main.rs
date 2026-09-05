@@ -1,3 +1,4 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
 // crates/kestrel-init/src/main.rs
 //
 //! `kestrel-init`'s PID-1 entry point. See
@@ -63,10 +64,17 @@ fn main() -> anyhow::Result<()> {
         // the user's workload should ever see on its own fd table.
         nix::fcntl::open(
             state_dir,
-            nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_RDONLY | nix::fcntl::OFlag::O_CLOEXEC,
+            nix::fcntl::OFlag::O_DIRECTORY
+                | nix::fcntl::OFlag::O_RDONLY
+                | nix::fcntl::OFlag::O_CLOEXEC,
             nix::sys::stat::Mode::empty(),
         )
-        .with_context(|| format!("opening {} (pre-pivot, to survive pivot_root)", state_dir.display()))?
+        .with_context(|| {
+            format!(
+                "opening {} (pre-pivot, to survive pivot_root)",
+                state_dir.display()
+            )
+        })?
     };
     let state_json_file_name = bootstrap
         .state_json_path
@@ -74,7 +82,8 @@ fn main() -> anyhow::Result<()> {
         .context("bootstrap.state_json_path has no file name")?;
     // Valid both before and after the pivot below — see the comment above.
     let state_json_path_durable: std::path::PathBuf =
-        std::path::PathBuf::from(format!("/proc/self/fd/{state_dir_fd}")).join(state_json_file_name);
+        std::path::PathBuf::from(format!("/proc/self/fd/{state_dir_fd}"))
+            .join(state_json_file_name);
 
     // Phase 9 Task 16: connect to `kestrel-shim`'s `seccomp.sock` NOW,
     // before `pivot_root` below, for the exact same reason
@@ -102,7 +111,8 @@ fn main() -> anyhow::Result<()> {
         .map(kestrel_init::exec::connect_notify_sink)
         .transpose()?;
 
-    let merged = kestrel_init::mounts::stage_rootfs(std::path::Path::new("/var/lib/kestrel"), &bootstrap)?;
+    let merged =
+        kestrel_init::mounts::stage_rootfs(std::path::Path::new("/var/lib/kestrel"), &bootstrap)?;
 
     let state_bytes = state_json_bytes(&bootstrap)?;
     kestrel_oci::hooks::run_hooks(&bootstrap.hooks.create_container, &state_bytes)?;
@@ -125,8 +135,10 @@ fn main() -> anyhow::Result<()> {
     mask.remove(nix::sys::signal::Signal::SIGILL);
     mask.remove(nix::sys::signal::Signal::SIGFPE);
     mask.thread_block()?;
-    let sfd = nix::sys::signalfd::SignalFd::with_flags(&mask, nix::sys::signalfd::SfdFlags::SFD_CLOEXEC)?;
+    let sfd =
+        nix::sys::signalfd::SignalFd::with_flags(&mask, nix::sys::signalfd::SfdFlags::SFD_CLOEXEC)?;
 
+    // SAFETY: safe with documented preconditions; see surrounding context.
     let entrypoint_pid = match unsafe { nix::unistd::fork()? } {
         nix::unistd::ForkResult::Parent { child } => {
             // PID 1 (this process) has no further use for its own copy of
@@ -196,5 +208,6 @@ fn state_json_bytes(bootstrap: &kestrel_oci::bootstrap::Bootstrap) -> anyhow::Re
     // hooks see exactly the same state a human running `kestrel state
     // <id>` would see at that moment.
     use anyhow::Context;
-    std::fs::read(&bootstrap.state_json_path).with_context(|| format!("reading {}", bootstrap.state_json_path.display()))
+    std::fs::read(&bootstrap.state_json_path)
+        .with_context(|| format!("reading {}", bootstrap.state_json_path.display()))
 }

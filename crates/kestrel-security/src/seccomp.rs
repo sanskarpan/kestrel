@@ -26,8 +26,10 @@ use kestrel_oci::runtime::LinuxSeccomp;
 /// not from this workspace-relative helper.
 pub fn load_default_profile(workspace_root: &Path) -> Result<LinuxSeccomp> {
     let path = workspace_root.join("profiles/seccomp/default.json");
-    let content = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    serde_json::from_str(&content).with_context(|| format!("parsing {} as LinuxSeccomp", path.display()))
+    let content =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("parsing {} as LinuxSeccomp", path.display()))
 }
 
 #[cfg(test)]
@@ -40,8 +42,16 @@ mod loader_tests {
         // two levels up.
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-        let profile = load_default_profile(workspace_root).expect("default.json must parse as LinuxSeccomp");
-        assert!(!profile.syscalls().as_ref().map(|s| s.is_empty()).unwrap_or(true), "profile must have at least one syscall rule");
+        let profile =
+            load_default_profile(workspace_root).expect("default.json must parse as LinuxSeccomp");
+        assert!(
+            !profile
+                .syscalls()
+                .as_ref()
+                .map(|s| s.is_empty())
+                .unwrap_or(true),
+            "profile must have at least one syscall rule"
+        );
     }
 }
 
@@ -97,7 +107,9 @@ use std::os::fd::{FromRawFd, OwnedFd};
 
 use anyhow::bail;
 use kestrel_oci::runtime::{Arch, LinuxSeccompAction, LinuxSeccompArg, LinuxSeccompOperator};
-use libseccomp::{ScmpAction, ScmpArch, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall};
+use libseccomp::{
+    ScmpAction, ScmpArch, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall,
+};
 
 /// Builds and loads a seccomp-bpf filter from `profile`, per SPEC.md §8.3.
 /// Must be called AFTER no_new_privs (Task 6) and LAST in `apply_all`
@@ -113,10 +125,12 @@ pub fn install_seccomp(profile: &LinuxSeccomp) -> Result<Option<OwnedFd>> {
     // NOTE: `ScmpFilterContext::new` does not exist in libseccomp 0.3.0;
     // `new_filter` is the real (non-deprecated) constructor — see the
     // module-level correction notes above.
-    let mut ctx = ScmpFilterContext::new_filter(default_action).context("creating seccomp filter context")?;
+    let mut ctx =
+        ScmpFilterContext::new_filter(default_action).context("creating seccomp filter context")?;
 
     for arch in profile.architectures().iter().flatten() {
-        ctx.add_arch(translate_arch(*arch)?).with_context(|| format!("adding arch {arch:?}"))?;
+        ctx.add_arch(translate_arch(*arch)?)
+            .with_context(|| format!("adding arch {arch:?}"))?;
     }
 
     let mut uses_notify = matches!(profile.default_action(), LinuxSeccompAction::ScmpActNotify);
@@ -133,10 +147,12 @@ pub fn install_seccomp(profile: &LinuxSeccomp) -> Result<Option<OwnedFd>> {
                 continue;
             };
             match rule.args() {
-                None => ctx.add_rule(action, sc).with_context(|| format!("adding rule for {name}"))?,
-                Some(args) if args.is_empty() => {
-                    ctx.add_rule(action, sc).with_context(|| format!("adding rule for {name}"))?
-                }
+                None => ctx
+                    .add_rule(action, sc)
+                    .with_context(|| format!("adding rule for {name}"))?,
+                Some(args) if args.is_empty() => ctx
+                    .add_rule(action, sc)
+                    .with_context(|| format!("adding rule for {name}"))?,
                 Some(args) => {
                     let cmps = translate_arg_comparisons(args)?;
                     ctx.add_rule_conditional(action, sc, &cmps)
@@ -146,7 +162,8 @@ pub fn install_seccomp(profile: &LinuxSeccomp) -> Result<Option<OwnedFd>> {
         }
     }
 
-    ctx.load().context("loading seccomp filter into the kernel")?;
+    ctx.load()
+        .context("loading seccomp filter into the kernel")?;
 
     if uses_notify {
         let fd = ctx.get_notify_fd().context("getting seccomp notify fd")?;
@@ -175,7 +192,9 @@ pub fn install_seccomp(profile: &LinuxSeccomp) -> Result<Option<OwnedFd>> {
 /// which is why both arms below default to `1`, not `0`.
 fn translate_action(action: LinuxSeccompAction, errno_ret: Option<u32>) -> Result<ScmpAction> {
     Ok(match action {
-        LinuxSeccompAction::ScmpActKill | LinuxSeccompAction::ScmpActKillThread => ScmpAction::KillThread,
+        LinuxSeccompAction::ScmpActKill | LinuxSeccompAction::ScmpActKillThread => {
+            ScmpAction::KillThread
+        }
         LinuxSeccompAction::ScmpActKillProcess => ScmpAction::KillProcess,
         LinuxSeccompAction::ScmpActTrap => ScmpAction::Trap,
         LinuxSeccompAction::ScmpActErrno => {
@@ -227,7 +246,10 @@ fn translate_arch(arch: Arch) -> Result<ScmpArch> {
         Arch::ScmpArchParisc => ScmpArch::Parisc,
         Arch::ScmpArchParisc64 => ScmpArch::Parisc64,
         Arch::ScmpArchRiscv64 => ScmpArch::Riscv64,
-        other @ (Arch::ScmpArchLoongarch64 | Arch::ScmpArchM68k | Arch::ScmpArchSh | Arch::ScmpArchSheb) => {
+        other @ (Arch::ScmpArchLoongarch64
+        | Arch::ScmpArchM68k
+        | Arch::ScmpArchSh
+        | Arch::ScmpArchSheb) => {
             bail!("no ScmpArch mapping for {other:?} in this libseccomp-rs version (libseccomp 0.3.0's ScmpArch has no LoongArch64/M68k/Sh/Sheb variant)")
         }
     })
@@ -273,7 +295,10 @@ fn translate_arg_comparisons(args: &[LinuxSeccompArg]) -> Result<Vec<ScmpArgComp
     args.iter()
         .map(|a| {
             let (op, compare_value) = if matches!(a.op(), LinuxSeccompOperator::ScmpCmpMaskedEq) {
-                (ScmpCompareOp::MaskedEqual(a.value()), a.value_two().unwrap_or(0))
+                (
+                    ScmpCompareOp::MaskedEqual(a.value()),
+                    a.value_two().unwrap_or(0),
+                )
             } else {
                 (translate_operator(a.op()), a.value())
             };
@@ -305,7 +330,8 @@ mod install_tests {
             LinuxSeccompAction::ScmpActLog,
             LinuxSeccompAction::ScmpActAllow,
         ] {
-            translate_action(action, Some(1)).unwrap_or_else(|e| panic!("{action} failed to translate: {e}"));
+            translate_action(action, Some(1))
+                .unwrap_or_else(|e| panic!("{action} failed to translate: {e}"));
         }
     }
 
@@ -316,23 +342,39 @@ mod install_tests {
         // on both sides (confirmed against oci-spec's LinuxSeccompAction
         // doc comment and libseccomp's ScmpAction::from_str, which maps
         // both "SCMP_ACT_KILL_THREAD" and "SCMP_ACT_KILL" to KillThread).
-        assert_eq!(translate_action(LinuxSeccompAction::ScmpActKill, None).unwrap(), ScmpAction::KillThread);
-        assert_eq!(translate_action(LinuxSeccompAction::ScmpActKillThread, None).unwrap(), ScmpAction::KillThread);
+        assert_eq!(
+            translate_action(LinuxSeccompAction::ScmpActKill, None).unwrap(),
+            ScmpAction::KillThread
+        );
+        assert_eq!(
+            translate_action(LinuxSeccompAction::ScmpActKillThread, None).unwrap(),
+            ScmpAction::KillThread
+        );
     }
 
     #[test]
     fn test_translate_action_errno_defaults_to_eperm() {
-        assert_eq!(translate_action(LinuxSeccompAction::ScmpActErrno, None).unwrap(), ScmpAction::Errno(libc::EPERM));
+        assert_eq!(
+            translate_action(LinuxSeccompAction::ScmpActErrno, None).unwrap(),
+            ScmpAction::Errno(libc::EPERM)
+        );
     }
 
     #[test]
     fn test_translate_action_errno_uses_configured_value() {
-        assert_eq!(translate_action(LinuxSeccompAction::ScmpActErrno, Some(42)).unwrap(), ScmpAction::Errno(42));
+        assert_eq!(
+            translate_action(LinuxSeccompAction::ScmpActErrno, Some(42)).unwrap(),
+            ScmpAction::Errno(42)
+        );
     }
 
     #[test]
     fn test_translate_action_trace_out_of_u16_range_bails() {
-        assert!(translate_action(LinuxSeccompAction::ScmpActTrace, Some(u32::from(u16::MAX) + 1)).is_err());
+        assert!(translate_action(
+            LinuxSeccompAction::ScmpActTrace,
+            Some(u32::from(u16::MAX) + 1)
+        )
+        .is_err());
     }
 
     /// At minimum this project's two real deployment targets (the Lima VM
@@ -340,8 +382,14 @@ mod install_tests {
     /// per the plan's own instruction on what's non-negotiable to cover.
     #[test]
     fn test_translate_arch_covers_real_deployment_targets() {
-        assert_eq!(translate_arch(Arch::ScmpArchX86_64).unwrap(), ScmpArch::X8664);
-        assert_eq!(translate_arch(Arch::ScmpArchAarch64).unwrap(), ScmpArch::Aarch64);
+        assert_eq!(
+            translate_arch(Arch::ScmpArchX86_64).unwrap(),
+            ScmpArch::X8664
+        );
+        assert_eq!(
+            translate_arch(Arch::ScmpArchAarch64).unwrap(),
+            ScmpArch::Aarch64
+        );
     }
 
     /// All 20 `Arch` variants with a real `ScmpArch` counterpart in this
@@ -349,11 +397,25 @@ mod install_tests {
     #[test]
     fn test_translate_arch_covers_all_mapped_variants() {
         for arch in [
-            Arch::ScmpArchNative, Arch::ScmpArchX86, Arch::ScmpArchX86_64, Arch::ScmpArchX32,
-            Arch::ScmpArchArm, Arch::ScmpArchAarch64, Arch::ScmpArchMips, Arch::ScmpArchMips64,
-            Arch::ScmpArchMips64n32, Arch::ScmpArchMipsel, Arch::ScmpArchMipsel64,
-            Arch::ScmpArchMipsel64n32, Arch::ScmpArchPpc, Arch::ScmpArchPpc64, Arch::ScmpArchPpc64le,
-            Arch::ScmpArchS390, Arch::ScmpArchS390x, Arch::ScmpArchParisc, Arch::ScmpArchParisc64,
+            Arch::ScmpArchNative,
+            Arch::ScmpArchX86,
+            Arch::ScmpArchX86_64,
+            Arch::ScmpArchX32,
+            Arch::ScmpArchArm,
+            Arch::ScmpArchAarch64,
+            Arch::ScmpArchMips,
+            Arch::ScmpArchMips64,
+            Arch::ScmpArchMips64n32,
+            Arch::ScmpArchMipsel,
+            Arch::ScmpArchMipsel64,
+            Arch::ScmpArchMipsel64n32,
+            Arch::ScmpArchPpc,
+            Arch::ScmpArchPpc64,
+            Arch::ScmpArchPpc64le,
+            Arch::ScmpArchS390,
+            Arch::ScmpArchS390x,
+            Arch::ScmpArchParisc,
+            Arch::ScmpArchParisc64,
             Arch::ScmpArchRiscv64,
         ] {
             translate_arch(arch).unwrap_or_else(|e| panic!("{arch:?} failed to translate: {e}"));
@@ -365,21 +427,50 @@ mod install_tests {
     /// filter.
     #[test]
     fn test_translate_arch_bails_on_unmapped_variants() {
-        for arch in [Arch::ScmpArchLoongarch64, Arch::ScmpArchM68k, Arch::ScmpArchSh, Arch::ScmpArchSheb] {
-            assert!(translate_arch(arch).is_err(), "{arch:?} was expected to have no ScmpArch mapping");
+        for arch in [
+            Arch::ScmpArchLoongarch64,
+            Arch::ScmpArchM68k,
+            Arch::ScmpArchSh,
+            Arch::ScmpArchSheb,
+        ] {
+            assert!(
+                translate_arch(arch).is_err(),
+                "{arch:?} was expected to have no ScmpArch mapping"
+            );
         }
     }
 
     /// All 7 `LinuxSeccompOperator` variants must translate.
     #[test]
     fn test_translate_operator_covers_all_seven_variants() {
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpNe), ScmpCompareOp::NotEqual);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpLt), ScmpCompareOp::Less);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpLe), ScmpCompareOp::LessOrEqual);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpEq), ScmpCompareOp::Equal);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpGe), ScmpCompareOp::GreaterEqual);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpGt), ScmpCompareOp::Greater);
-        assert_eq!(translate_operator(LinuxSeccompOperator::ScmpCmpMaskedEq), ScmpCompareOp::MaskedEqual(0));
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpNe),
+            ScmpCompareOp::NotEqual
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpLt),
+            ScmpCompareOp::Less
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpLe),
+            ScmpCompareOp::LessOrEqual
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpEq),
+            ScmpCompareOp::Equal
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpGe),
+            ScmpCompareOp::GreaterEqual
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpGt),
+            ScmpCompareOp::Greater
+        );
+        assert_eq!(
+            translate_operator(LinuxSeccompOperator::ScmpCmpMaskedEq),
+            ScmpCompareOp::MaskedEqual(0)
+        );
     }
 
     #[test]
@@ -392,7 +483,10 @@ mod install_tests {
             .build()
             .unwrap();
         let cmps = translate_arg_comparisons(&[arg]).unwrap();
-        assert_eq!(cmps, vec![ScmpArgCompare::new(0, ScmpCompareOp::Equal, 123)]);
+        assert_eq!(
+            cmps,
+            vec![ScmpArgCompare::new(0, ScmpCompareOp::Equal, 123)]
+        );
     }
 
     #[test]
@@ -406,6 +500,13 @@ mod install_tests {
             .build()
             .unwrap();
         let cmps = translate_arg_comparisons(&[arg]).unwrap();
-        assert_eq!(cmps, vec![ScmpArgCompare::new(1, ScmpCompareOp::MaskedEqual(0xff00), 0x1200)]);
+        assert_eq!(
+            cmps,
+            vec![ScmpArgCompare::new(
+                1,
+                ScmpCompareOp::MaskedEqual(0xff00),
+                0x1200
+            )]
+        );
     }
 }

@@ -9,7 +9,9 @@ use nix::mount::{mount, umount2, MntFlags, MsFlags};
 mod common;
 
 use kestrel_rootfs::bindmount::bind_readonly;
-use kestrel_rootfs::mounts::{bind_default_devices, bind_mount_file, create_default_devices, setup_standard_mounts};
+use kestrel_rootfs::mounts::{
+    bind_default_devices, bind_mount_file, create_default_devices, setup_standard_mounts,
+};
 
 #[test]
 #[ignore = "requires root"]
@@ -23,10 +25,18 @@ fn test_single_call_bind_rdonly_is_silently_writable() {
     let dst_path = dst.path().to_path_buf();
 
     common::run_in_fresh_mount_ns(move || {
-        mount(Some(&src_path), &dst_path, None::<&str>, MsFlags::MS_BIND | MsFlags::MS_RDONLY, None::<&str>)
-            .expect("single-call bind+rdonly mount");
+        mount(
+            Some(&src_path),
+            &dst_path,
+            None::<&str>,
+            MsFlags::MS_BIND | MsFlags::MS_RDONLY,
+            None::<&str>,
+        )
+        .expect("single-call bind+rdonly mount");
 
-        let write_result = fs::OpenOptions::new().write(true).open(dst_path.join("f.txt"));
+        let write_result = fs::OpenOptions::new()
+            .write(true)
+            .open(dst_path.join("f.txt"));
         assert!(
             write_result.is_ok(),
             "documenting the footgun: a single MS_BIND|MS_RDONLY call does NOT make the mount read-only"
@@ -48,7 +58,9 @@ fn test_bind_readonly_two_call_sequence_actually_enforces_read_only() {
     common::run_in_fresh_mount_ns(move || {
         bind_readonly(&src_path, &dst_path).expect("bind_readonly");
 
-        let mut write_result = fs::OpenOptions::new().write(true).open(dst_path.join("f.txt"));
+        let mut write_result = fs::OpenOptions::new()
+            .write(true)
+            .open(dst_path.join("f.txt"));
         match &mut write_result {
             Ok(f) => {
                 let err = f.write_all(b"nope").unwrap_err();
@@ -58,7 +70,11 @@ fn test_bind_readonly_two_call_sequence_actually_enforces_read_only() {
                 );
             }
             Err(e) => {
-                assert_eq!(e.raw_os_error(), Some(libc::EROFS), "expected EROFS opening for write, got {e:?}");
+                assert_eq!(
+                    e.raw_os_error(),
+                    Some(libc::EROFS),
+                    "expected EROFS opening for write, got {e:?}"
+                );
             }
         }
 
@@ -134,7 +150,8 @@ fn test_bind_default_devices_bind_mounts_real_host_devices() {
         // underlying char device AND same mount's st_dev), not merely a
         // file that happens to also be a character device.
         let host_null = stat("/dev/null").expect("stat host /dev/null");
-        let container_null = stat(rootfs.join("dev/null").as_path()).expect("stat container dev/null");
+        let container_null =
+            stat(rootfs.join("dev/null").as_path()).expect("stat container dev/null");
         assert_eq!(
             container_null.st_rdev, host_null.st_rdev,
             "bind-mounted dev/null should report the same rdev (major/minor) as the host's /dev/null"
@@ -186,8 +203,14 @@ fn test_bind_mount_file_is_a_real_bind_not_a_copy_and_unmounts_cleanly() {
         // the source), not a copy.
         let src_stat = stat(&src_path).unwrap();
         let target_stat = stat(&target_path).unwrap();
-        assert_eq!(target_stat.st_dev, src_stat.st_dev, "bind-mounted target should share the source's st_dev");
-        assert_eq!(target_stat.st_ino, src_stat.st_ino, "bind-mounted target should share the source's inode");
+        assert_eq!(
+            target_stat.st_dev, src_stat.st_dev,
+            "bind-mounted target should share the source's st_dev"
+        );
+        assert_eq!(
+            target_stat.st_ino, src_stat.st_ino,
+            "bind-mounted target should share the source's inode"
+        );
 
         // Write through the target, read from the source: proves the bind
         // is live and read-write, not a one-shot copy.

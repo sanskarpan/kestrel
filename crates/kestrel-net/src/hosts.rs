@@ -8,7 +8,11 @@ use std::net::Ipv4Addr;
 
 /// Generates `/etc/hosts` content: loopback entries, the container's own
 /// hostname/IP, plus any extra caller-supplied entries.
-pub fn generate_hosts(hostname: &str, container_ip: Option<Ipv4Addr>, extra: &[(Ipv4Addr, String)]) -> String {
+pub fn generate_hosts(
+    hostname: &str,
+    container_ip: Option<Ipv4Addr>,
+    extra: &[(Ipv4Addr, String)],
+) -> String {
     let mut out = String::from("127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n");
     if let Some(ip) = container_ip {
         out.push_str(&format!("{ip}\t{hostname}\n"));

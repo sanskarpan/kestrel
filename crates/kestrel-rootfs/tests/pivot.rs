@@ -76,7 +76,10 @@ fn test_pivot_root_does_not_leak_mounts_to_host_mount_namespace() {
     });
 
     let after = fs::read_to_string("/proc/self/mountinfo").expect("read mountinfo after");
-    assert_eq!(before, after, "pivot_root inside an isolated mount namespace must not leak mounts to the host");
+    assert_eq!(
+        before, after,
+        "pivot_root inside an isolated mount namespace must not leak mounts to the host"
+    );
 }
 
 #[test]

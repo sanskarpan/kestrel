@@ -125,7 +125,11 @@ pub enum Event {
     #[serde(rename = "net.detach")]
     NetDetach { id: String },
     #[serde(rename = "copyup")]
-    CopyUp { id: String, path: String, size_bytes: u64 },
+    CopyUp {
+        id: String,
+        path: String,
+        size_bytes: u64,
+    },
     #[serde(rename = "seccomp.violation")]
     SeccompViolation { id: String, syscall: String },
     #[serde(rename = "psi.threshold")]
@@ -197,7 +201,10 @@ fn event_stream(
                     return Some((Ok(SseEvent::default().data(data)), rx));
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "GET /events subscriber lagged — some events were dropped; continuing");
+                    tracing::warn!(
+                        skipped,
+                        "GET /events subscriber lagged — some events were dropped; continuing"
+                    );
                     continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => return None,
@@ -231,13 +238,17 @@ async fn translate_signal(run_dir: &Path, signal: MetricsSignal) -> Option<Event
                 // would double-publish the same real-world occurrence.
                 return None;
             }
-            let exit_code = registry::read_state(run_dir, &id).await.ok().and_then(|s| s.exit_code);
+            let exit_code = registry::read_state(run_dir, &id)
+                .await
+                .ok()
+                .and_then(|s| s.exit_code);
             Some(Event::ContainerDie { id, exit_code })
         }
         MetricsSignal::Oom { id, .. } => Some(Event::ContainerOom { id }),
-        MetricsSignal::PsiThreshold { id, resource, .. } => {
-            Some(Event::PsiThreshold { id, resource: cgroup_resource_name(resource).to_string() })
-        }
+        MetricsSignal::PsiThreshold { id, resource, .. } => Some(Event::PsiThreshold {
+            id,
+            resource: cgroup_resource_name(resource).to_string(),
+        }),
         MetricsSignal::CgroupThrottle { id, .. } => Some(Event::CgroupThrottle { id }),
     }
 }
@@ -272,8 +283,16 @@ pub fn spawn_consumer(state: Arc<AppState>) {
 mod tests {
     use super::*;
 
-    fn transition(id: &str, from: kestrel_oci::state::Status, to: kestrel_oci::state::Status) -> MetricsSignal {
-        MetricsSignal::StatusTransition { id: id.to_string(), from, to }
+    fn transition(
+        id: &str,
+        from: kestrel_oci::state::Status,
+        to: kestrel_oci::state::Status,
+    ) -> MetricsSignal {
+        MetricsSignal::StatusTransition {
+            id: id.to_string(),
+            from,
+            to,
+        }
     }
 
     /// The core of this task's own mapping decision: a transition TO
@@ -284,15 +303,27 @@ mod tests {
     async fn test_running_to_stopped_becomes_container_die_with_real_exit_code() {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let id = "c1";
-        write_state(run_dir.path(), id, kestrel_oci::state::Status::Stopped, Some(137));
+        write_state(
+            run_dir.path(),
+            id,
+            kestrel_oci::state::Status::Stopped,
+            Some(137),
+        );
 
         let event = translate_signal(
             run_dir.path(),
-            transition(id, kestrel_oci::state::Status::Running, kestrel_oci::state::Status::Stopped),
+            transition(
+                id,
+                kestrel_oci::state::Status::Running,
+                kestrel_oci::state::Status::Stopped,
+            ),
         )
         .await;
         match event {
-            Some(Event::ContainerDie { id: got_id, exit_code }) => {
+            Some(Event::ContainerDie {
+                id: got_id,
+                exit_code,
+            }) => {
                 assert_eq!(got_id, id);
                 assert_eq!(exit_code, Some(137));
             }
@@ -308,11 +339,20 @@ mod tests {
     async fn test_created_to_stopped_also_becomes_container_die() {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let id = "c2";
-        write_state(run_dir.path(), id, kestrel_oci::state::Status::Stopped, Some(137));
+        write_state(
+            run_dir.path(),
+            id,
+            kestrel_oci::state::Status::Stopped,
+            Some(137),
+        );
 
         let event = translate_signal(
             run_dir.path(),
-            transition(id, kestrel_oci::state::Status::Created, kestrel_oci::state::Status::Stopped),
+            transition(
+                id,
+                kestrel_oci::state::Status::Created,
+                kestrel_oci::state::Status::Stopped,
+            ),
         )
         .await;
         assert!(matches!(event, Some(Event::ContainerDie { .. })));
@@ -329,13 +369,28 @@ mod tests {
     async fn test_start_pause_unpause_transitions_are_not_translated() {
         let run_dir = tempfile::tempdir().expect("tempdir");
         for (from, to) in [
-            (kestrel_oci::state::Status::Creating, kestrel_oci::state::Status::Created),
-            (kestrel_oci::state::Status::Created, kestrel_oci::state::Status::Running),
-            (kestrel_oci::state::Status::Running, kestrel_oci::state::Status::Paused),
-            (kestrel_oci::state::Status::Paused, kestrel_oci::state::Status::Running),
+            (
+                kestrel_oci::state::Status::Creating,
+                kestrel_oci::state::Status::Created,
+            ),
+            (
+                kestrel_oci::state::Status::Created,
+                kestrel_oci::state::Status::Running,
+            ),
+            (
+                kestrel_oci::state::Status::Running,
+                kestrel_oci::state::Status::Paused,
+            ),
+            (
+                kestrel_oci::state::Status::Paused,
+                kestrel_oci::state::Status::Running,
+            ),
         ] {
             let event = translate_signal(run_dir.path(), transition("c3", from, to)).await;
-            assert!(event.is_none(), "expected {from:?}->{to:?} to translate to None, got {event:?}");
+            assert!(
+                event.is_none(),
+                "expected {from:?}->{to:?} to translate to None, got {event:?}"
+            );
         }
     }
 
@@ -344,7 +399,10 @@ mod tests {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let event = translate_signal(
             run_dir.path(),
-            MetricsSignal::Oom { id: "c4".to_string(), oom_kill_count: 1 },
+            MetricsSignal::Oom {
+                id: "c4".to_string(),
+                oom_kill_count: 1,
+            },
         )
         .await;
         assert!(matches!(event, Some(Event::ContainerOom { id }) if id == "c4"));
@@ -355,7 +413,11 @@ mod tests {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let event = translate_signal(
             run_dir.path(),
-            MetricsSignal::PsiThreshold { id: "c5".to_string(), resource: CgroupResource::Memory, avg10: 12.3 },
+            MetricsSignal::PsiThreshold {
+                id: "c5".to_string(),
+                resource: CgroupResource::Memory,
+                avg10: 12.3,
+            },
         )
         .await;
         match event {
@@ -372,7 +434,10 @@ mod tests {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let event = translate_signal(
             run_dir.path(),
-            MetricsSignal::CgroupThrottle { id: "c6".to_string(), nr_throttled: 3 },
+            MetricsSignal::CgroupThrottle {
+                id: "c6".to_string(),
+                nr_throttled: 3,
+            },
         )
         .await;
         assert!(matches!(event, Some(Event::CgroupThrottle { id }) if id == "c6"));
@@ -386,7 +451,11 @@ mod tests {
         let run_dir = tempfile::tempdir().expect("tempdir");
         let event = translate_signal(
             run_dir.path(),
-            transition("nonexistent", kestrel_oci::state::Status::Running, kestrel_oci::state::Status::Stopped),
+            transition(
+                "nonexistent",
+                kestrel_oci::state::Status::Running,
+                kestrel_oci::state::Status::Stopped,
+            ),
         )
         .await;
         match event {
@@ -426,7 +495,13 @@ mod tests {
         let mut sub = state.event_bus.subscribe();
         spawn_consumer(state.clone());
 
-        metrics_tx.send(MetricsSignal::Oom { id: "abc".to_string(), oom_kill_count: 1 }).await.unwrap();
+        metrics_tx
+            .send(MetricsSignal::Oom {
+                id: "abc".to_string(),
+                oom_kill_count: 1,
+            })
+            .await
+            .unwrap();
 
         let event = tokio::time::timeout(std::time::Duration::from_secs(5), sub.recv())
             .await
@@ -441,25 +516,73 @@ mod tests {
     #[test]
     fn test_event_json_tags_match_spec() {
         let cases: Vec<(Event, &str)> = vec![
-            (Event::ContainerCreate { id: "x".into() }, "container.create"),
+            (
+                Event::ContainerCreate { id: "x".into() },
+                "container.create",
+            ),
             (Event::ContainerStart { id: "x".into() }, "container.start"),
-            (Event::ContainerDie { id: "x".into(), exit_code: Some(0) }, "container.die"),
+            (
+                Event::ContainerDie {
+                    id: "x".into(),
+                    exit_code: Some(0),
+                },
+                "container.die",
+            ),
             (Event::ContainerOom { id: "x".into() }, "container.oom"),
             (Event::ContainerPause { id: "x".into() }, "container.pause"),
-            (Event::ContainerUnpause { id: "x".into() }, "container.unpause"),
-            (Event::ContainerDestroy { id: "x".into() }, "container.destroy"),
-            (Event::ImagePullProgress { reference: "x".into(), detail: "y".into() }, "image.pull.progress"),
-            (Event::ImagePullDone { reference: "x".into() }, "image.pull.done"),
+            (
+                Event::ContainerUnpause { id: "x".into() },
+                "container.unpause",
+            ),
+            (
+                Event::ContainerDestroy { id: "x".into() },
+                "container.destroy",
+            ),
+            (
+                Event::ImagePullProgress {
+                    reference: "x".into(),
+                    detail: "y".into(),
+                },
+                "image.pull.progress",
+            ),
+            (
+                Event::ImagePullDone {
+                    reference: "x".into(),
+                },
+                "image.pull.done",
+            ),
             (Event::NetAttach { id: "x".into() }, "net.attach"),
             (Event::NetDetach { id: "x".into() }, "net.detach"),
-            (Event::CopyUp { id: "x".into(), path: "p".into(), size_bytes: 1 }, "copyup"),
-            (Event::SeccompViolation { id: "x".into(), syscall: "s".into() }, "seccomp.violation"),
-            (Event::PsiThreshold { id: "x".into(), resource: "cpu".into() }, "psi.threshold"),
+            (
+                Event::CopyUp {
+                    id: "x".into(),
+                    path: "p".into(),
+                    size_bytes: 1,
+                },
+                "copyup",
+            ),
+            (
+                Event::SeccompViolation {
+                    id: "x".into(),
+                    syscall: "s".into(),
+                },
+                "seccomp.violation",
+            ),
+            (
+                Event::PsiThreshold {
+                    id: "x".into(),
+                    resource: "cpu".into(),
+                },
+                "psi.threshold",
+            ),
             (Event::CgroupThrottle { id: "x".into() }, "cgroup.throttle"),
         ];
         for (event, expected_type) in cases {
             let json: serde_json::Value = serde_json::to_value(&event).expect("serialize Event");
-            assert_eq!(json["type"], expected_type, "unexpected wire tag for {event:?}");
+            assert_eq!(
+                json["type"], expected_type,
+                "unexpected wire tag for {event:?}"
+            );
         }
     }
 
@@ -474,7 +597,9 @@ mod tests {
         // Publish far more than the channel's capacity BEFORE the stream
         // ever polls — guarantees a real `Lagged` on the first `recv()`.
         for i in 0..20 {
-            let _ = tx.send(Event::ContainerCreate { id: format!("c{i}") });
+            let _ = tx.send(Event::ContainerCreate {
+                id: format!("c{i}"),
+            });
         }
         let mut stream = std::pin::pin!(event_stream(rx));
         use futures_util::StreamExt;
@@ -490,7 +615,9 @@ mod tests {
 
         // The bus (and stream) must still be genuinely alive afterward —
         // a freshly published event is still delivered.
-        let _ = tx.send(Event::ContainerCreate { id: "after-lag".to_string() });
+        let _ = tx.send(Event::ContainerCreate {
+            id: "after-lag".to_string(),
+        });
         let second = stream.next().await;
         assert!(
             matches!(second, Some(Ok(_))),
@@ -610,7 +737,11 @@ mod tests {
             fixture_path.display()
         );
         std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
-            panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display())
+            panic!(
+                "copy {} to {}: {e}",
+                fixture_path.display(),
+                dest.join("fixture").display()
+            )
         });
         std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755))
             .expect("chmod fixture binary");
@@ -681,15 +812,33 @@ mod tests {
             .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
         (status, bytes.to_vec())
     }
 
-    async fn call_router_empty(app: axum::Router, method: &str, uri: String) -> (StatusCode, Vec<u8>) {
-        let request = Request::builder().method(method).uri(uri).body(Body::empty()).unwrap();
+    async fn call_router_empty(
+        app: axum::Router,
+        method: &str,
+        uri: String,
+    ) -> (StatusCode, Vec<u8>) {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
-        let bytes = response.into_body().collect().await.expect("collect body").to_bytes();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
         (status, bytes.to_vec())
     }
 
@@ -730,7 +879,9 @@ mod tests {
             while let Some(idx) = acc.find("\n\n") {
                 let chunk: String = acc.drain(..idx + 2).collect();
                 for line in chunk.lines() {
-                    let Some(json_str) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:"))
+                    let Some(json_str) = line
+                        .strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"))
                     else {
                         continue; // keep-alive/comment lines, blank lines, etc.
                     };
@@ -809,8 +960,16 @@ mod tests {
         // ---- subscribe BEFORE triggering anything, so the very first
         // event published for this (not-yet-created) container is
         // genuinely captured, not raced. ----
-        let events_request = Request::builder().method("GET").uri("/events").body(Body::empty()).unwrap();
-        let events_response = app.clone().oneshot(events_request).await.expect("GET /events oneshot");
+        let events_request = Request::builder()
+            .method("GET")
+            .uri("/events")
+            .body(Body::empty())
+            .unwrap();
+        let events_response = app
+            .clone()
+            .oneshot(events_request)
+            .await
+            .expect("GET /events oneshot");
         assert_eq!(events_response.status(), StatusCode::OK);
         let mut events_body = events_response.into_body();
 
@@ -834,14 +993,20 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
         // ---- start ----
         let (start_status, start_resp) =
             call_router_empty(app.clone(), "POST", format!("/containers/{id}/start")).await;
-        assert_eq!(start_status, StatusCode::OK, "start failed: {}", String::from_utf8_lossy(&start_resp));
+        assert_eq!(
+            start_status,
+            StatusCode::OK,
+            "start failed: {}",
+            String::from_utf8_lossy(&start_resp)
+        );
 
         let running = poll_until(Duration::from_secs(10), || {
             kestrel_oci::state::State::read(&state_path)
@@ -849,13 +1014,18 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // Same "wait for the real entrypoint pid, not kestrel-init's own"
         // precedent every other real-container test in this crate follows
         // before signaling it (`main.rs`'s own Task 9 tests).
         poll_until(Duration::from_secs(10), || {
-            kestrel_oci::state::State::read(&state_path).ok().filter(|s| s.pid != created.pid)
+            kestrel_oci::state::State::read(&state_path)
+                .ok()
+                .filter(|s| s.pid != created.pid)
         })
         .await
         .expect("state.json's pid was never updated to the entrypoint's real pid");
@@ -883,15 +1053,24 @@ mod tests {
         // within the grace period without needing SIGKILL. ----
         let (stop_status, stop_resp) =
             call_router_empty(app.clone(), "POST", format!("/containers/{id}/stop")).await;
-        assert_eq!(stop_status, StatusCode::OK, "stop failed: {}", String::from_utf8_lossy(&stop_resp));
+        assert_eq!(
+            stop_status,
+            StatusCode::OK,
+            "stop failed: {}",
+            String::from_utf8_lossy(&stop_resp)
+        );
 
         // ---- the real assertion: exactly create -> start -> die, in
         // order, no duplicates, all for this same container id. ----
-        let collected = collect_matching_events(&mut events_body, &id, Duration::from_secs(15), |v| {
-            v["type"] == "container.die"
-        })
-        .await;
-        let types: Vec<String> = collected.iter().map(|v| v["type"].as_str().unwrap().to_string()).collect();
+        let collected =
+            collect_matching_events(&mut events_body, &id, Duration::from_secs(15), |v| {
+                v["type"] == "container.die"
+            })
+            .await;
+        let types: Vec<String> = collected
+            .iter()
+            .map(|v| v["type"].as_str().unwrap().to_string())
+            .collect();
         assert_eq!(
             types,
             vec!["container.create", "container.start", "container.die"],
@@ -910,7 +1089,12 @@ mod tests {
         cleanup_real_container_artifacts(&id);
     }
 
-    fn write_state(run_dir: &Path, id: &str, status: kestrel_oci::state::Status, exit_code: Option<i32>) {
+    fn write_state(
+        run_dir: &Path,
+        id: &str,
+        status: kestrel_oci::state::Status,
+        exit_code: Option<i32>,
+    ) {
         let dir = run_dir.join(id);
         std::fs::create_dir_all(&dir).expect("mkdir container run dir");
         let state = kestrel_oci::state::State {
@@ -922,6 +1106,8 @@ mod tests {
             annotations: Default::default(),
             exit_code,
         };
-        state.write_atomic(&dir.join("state.json")).expect("write state.json");
+        state
+            .write_atomic(&dir.join("state.json"))
+            .expect("write state.json");
     }
 }

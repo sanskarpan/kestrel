@@ -159,7 +159,10 @@ mod tests {
 
         let refreshed = read_and_refresh(&path).unwrap();
         assert_eq!(refreshed.state, s);
-        assert!(!refreshed.stale, "pid is alive, should not be flagged stale");
+        assert!(
+            !refreshed.stale,
+            "pid is alive, should not be flagged stale"
+        );
         assert!(refreshed.stale_note().is_none());
     }
 

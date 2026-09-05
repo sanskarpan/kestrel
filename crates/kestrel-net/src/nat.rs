@@ -169,7 +169,12 @@ pub fn forward_established_rule_spec(bridge_name: &str) -> Vec<String> {
 /// without duplicating the match/target construction. [`add_dnat`] always
 /// calls this with [`PREROUTING_CHAIN`] — the only netfilter-valid
 /// placement for a DNAT target (see [`add_dnat`]'s doc comment).
-pub fn dnat_rule_spec(chain: &str, host_port: u16, container_ip: Ipv4Addr, container_port: u16) -> Vec<String> {
+pub fn dnat_rule_spec(
+    chain: &str,
+    host_port: u16,
+    container_ip: Ipv4Addr,
+    container_port: u16,
+) -> Vec<String> {
     vec![
         chain.to_string(),
         "-p".to_string(),
@@ -222,7 +227,10 @@ fn delete_args(table: &str, spec: &[String]) -> Vec<String> {
 // ---------------------------------------------------------------------
 
 fn run_iptables(args: &[String]) -> Result<std::process::Output> {
-    Command::new("iptables").args(args).output().with_context(|| format!("running iptables {args:?}"))
+    Command::new("iptables")
+        .args(args)
+        .output()
+        .with_context(|| format!("running iptables {args:?}"))
 }
 
 /// `full_check_args` must already be a complete arg vector (as built by
@@ -236,15 +244,30 @@ fn rule_exists(full_check_args: &[String]) -> Result<bool> {
     // treats any nonzero exit as "doesn't exist" for simplicity, which
     // is safe here because every rule spec this module builds is
     // internally fixed/well-formed).
-    let output = Command::new("iptables").args(full_check_args).output().context("checking rule existence")?;
+    let output = Command::new("iptables")
+        .args(full_check_args)
+        .output()
+        .context("checking rule existence")?;
     Ok(output.status.success())
 }
 
 fn ensure_chain_exists(table: &str, chain: &str) -> Result<()> {
-    let check = Command::new("iptables").args(["-t", table, "-L", chain, "-n"]).output().context("checking chain existence")?;
+    let check = Command::new("iptables")
+        .args(["-t", table, "-L", chain, "-n"])
+        .output()
+        .context("checking chain existence")?;
     if !check.status.success() {
-        let out = run_iptables(&["-t".to_string(), table.to_string(), "-N".to_string(), chain.to_string()])?;
-        ensure!(out.status.success(), "creating chain {chain} failed: {}", String::from_utf8_lossy(&out.stderr));
+        let out = run_iptables(&[
+            "-t".to_string(),
+            table.to_string(),
+            "-N".to_string(),
+            chain.to_string(),
+        ])?;
+        ensure!(
+            out.status.success(),
+            "creating chain {chain} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     Ok(())
 }
@@ -259,7 +282,11 @@ fn ensure_jump_exists(table: &str, from_chain: &str, to_chain: &str) -> Result<(
     full_check_spec.extend_from_slice(&spec);
     if !rule_exists(&check_args(table, &full_check_spec))? {
         let out = run_iptables(&add_args(table, &full_check_spec))?;
-        ensure!(out.status.success(), "linking {from_chain} -> {to_chain} failed: {}", String::from_utf8_lossy(&out.stderr));
+        ensure!(
+            out.status.success(),
+            "linking {from_chain} -> {to_chain} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     Ok(())
 }
@@ -267,7 +294,11 @@ fn ensure_jump_exists(table: &str, from_chain: &str, to_chain: &str) -> Result<(
 fn ensure_rule(table: &str, spec: &[String], description: &str) -> Result<()> {
     if !rule_exists(&check_args(table, spec))? {
         let out = run_iptables(&add_args(table, spec))?;
-        ensure!(out.status.success(), "adding {description} failed: {}", String::from_utf8_lossy(&out.stderr));
+        ensure!(
+            out.status.success(),
+            "adding {description} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     Ok(())
 }
@@ -282,7 +313,8 @@ fn ensure_rule(table: &str, spec: &[String], description: &str) -> Result<()> {
 /// the path is missing, so a misconfigured host produces an obvious
 /// error instead of NAT silently not working.
 pub fn enable_forwarding_sysctls() -> Result<()> {
-    std::fs::write("/proc/sys/net/ipv4/ip_forward", b"1").context("writing net.ipv4.ip_forward=1")?;
+    std::fs::write("/proc/sys/net/ipv4/ip_forward", b"1")
+        .context("writing net.ipv4.ip_forward=1")?;
     let br_path = "/proc/sys/net/bridge/bridge-nf-call-iptables";
     match std::fs::write(br_path, b"1") {
         Ok(()) => Ok(()),
@@ -334,14 +366,35 @@ pub fn ensure_masquerade(subnet: Ipv4Network, bridge_name: &str) -> Result<()> {
     ensure_jump_exists("nat", "POSTROUTING", POSTROUTING_CHAIN)?;
     ensure_jump_exists("filter", "FORWARD", FORWARD_CHAIN)?;
 
-    ensure_rule("nat", &masquerade_rule_spec(subnet, bridge_name), "egress MASQUERADE")?;
-    ensure_rule("nat", &hairpin_masquerade_rule_spec(bridge_name), "hairpin MASQUERADE (published-port loopback)")?;
-    ensure_rule("filter", &forward_from_bridge_rule_spec(bridge_name), "FORWARD accept (bridge -> outside)")?;
-    ensure_rule("filter", &forward_inter_bridge_rule_spec(bridge_name), "FORWARD accept (bridge <-> bridge)")?;
-    ensure_rule("filter", &forward_established_rule_spec(bridge_name), "FORWARD accept (established/related)")?;
+    ensure_rule(
+        "nat",
+        &masquerade_rule_spec(subnet, bridge_name),
+        "egress MASQUERADE",
+    )?;
+    ensure_rule(
+        "nat",
+        &hairpin_masquerade_rule_spec(bridge_name),
+        "hairpin MASQUERADE (published-port loopback)",
+    )?;
+    ensure_rule(
+        "filter",
+        &forward_from_bridge_rule_spec(bridge_name),
+        "FORWARD accept (bridge -> outside)",
+    )?;
+    ensure_rule(
+        "filter",
+        &forward_inter_bridge_rule_spec(bridge_name),
+        "FORWARD accept (bridge <-> bridge)",
+    )?;
+    ensure_rule(
+        "filter",
+        &forward_established_rule_spec(bridge_name),
+        "FORWARD accept (established/related)",
+    )?;
 
     let route_localnet_path = format!("/proc/sys/net/ipv4/conf/{bridge_name}/route_localnet");
-    std::fs::write(&route_localnet_path, b"1").with_context(|| format!("writing {route_localnet_path}=1"))?;
+    std::fs::write(&route_localnet_path, b"1")
+        .with_context(|| format!("writing {route_localnet_path}=1"))?;
 
     Ok(())
 }
@@ -439,13 +492,34 @@ pub fn teardown_all(bridge_name: &str) -> Result<()> {
         ("filter", "FORWARD", FORWARD_CHAIN),
     ];
     for (table, built_in, chain) in jumps {
-        let _ = run_iptables(&["-t".to_string(), table.to_string(), "-D".to_string(), built_in.to_string(), "-j".to_string(), chain.to_string()]);
+        let _ = run_iptables(&[
+            "-t".to_string(),
+            table.to_string(),
+            "-D".to_string(),
+            built_in.to_string(),
+            "-j".to_string(),
+            chain.to_string(),
+        ]);
     }
 
-    let chains = [("nat", PREROUTING_CHAIN), ("nat", POSTROUTING_CHAIN), ("filter", FORWARD_CHAIN)];
+    let chains = [
+        ("nat", PREROUTING_CHAIN),
+        ("nat", POSTROUTING_CHAIN),
+        ("filter", FORWARD_CHAIN),
+    ];
     for (table, chain) in chains {
-        let _ = run_iptables(&["-t".to_string(), table.to_string(), "-F".to_string(), chain.to_string()]);
-        let _ = run_iptables(&["-t".to_string(), table.to_string(), "-X".to_string(), chain.to_string()]);
+        let _ = run_iptables(&[
+            "-t".to_string(),
+            table.to_string(),
+            "-F".to_string(),
+            chain.to_string(),
+        ]);
+        let _ = run_iptables(&[
+            "-t".to_string(),
+            table.to_string(),
+            "-X".to_string(),
+            chain.to_string(),
+        ]);
     }
     Ok(())
 }

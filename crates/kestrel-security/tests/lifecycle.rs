@@ -80,7 +80,8 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
     // root-equivalent — same set tests/caps.rs's
     // test_caps_dropped_blocks_mount already established as "the OCI
     // default-ish shape without the one capability mount(2) needs".
-    let bounding: kestrel_oci::runtime::Capabilities = DEFAULT_CAPABILITIES.iter().copied().collect();
+    let bounding: kestrel_oci::runtime::Capabilities =
+        DEFAULT_CAPABILITIES.iter().copied().collect();
     let linux_caps = LinuxCapabilitiesBuilder::default()
         .bounding(bounding.clone())
         .effective(bounding.clone())
@@ -97,7 +98,11 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
         .build()
         .unwrap();
 
-    let user = UserBuilder::default().uid(TARGET_UID).gid(TARGET_GID).build().unwrap();
+    let user = UserBuilder::default()
+        .uid(TARGET_UID)
+        .gid(TARGET_GID)
+        .build()
+        .unwrap();
 
     let process = ProcessBuilder::default()
         .user(user)
@@ -161,7 +166,9 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
     drop(write_end);
 
     let mut output = String::new();
-    read_end.read_to_string(&mut output).expect("read fixture stdout from pipe");
+    read_end
+        .read_to_string(&mut output)
+        .expect("read fixture stdout from pipe");
 
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(
@@ -170,8 +177,16 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
         "fixture must report exactly 5 lines, got: {output:?}"
     );
 
-    assert_eq!(lines[0], format!("uid={TARGET_UID}"), "uid must land on the non-root target");
-    assert_eq!(lines[1], format!("euid={TARGET_UID}"), "euid must land on the non-root target");
+    assert_eq!(
+        lines[0],
+        format!("uid={TARGET_UID}"),
+        "uid must land on the non-root target"
+    );
+    assert_eq!(
+        lines[1],
+        format!("euid={TARGET_UID}"),
+        "euid must land on the non-root target"
+    );
     assert_eq!(
         lines[2], "has_sys_admin=false",
         "CAP_SYS_ADMIN must NOT be in the effective set — it was excluded from the bounding set passed in"

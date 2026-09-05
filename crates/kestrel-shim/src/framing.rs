@@ -22,7 +22,10 @@ const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame {
     Data(Vec<u8>),
-    Resize { rows: u16, cols: u16 },
+    Resize {
+        rows: u16,
+        cols: u16,
+    },
     Close,
     SeccompEvent(Vec<u8>), // serde_json-encoded NotifyEvent, Task 16
     /// Sent by `kestrel-shim`'s `daemon::handle_attach_conn` as literally
@@ -39,7 +42,10 @@ pub enum Frame {
     Ready,
 }
 
-pub async fn write_frame(w: &mut (impl tokio::io::AsyncWrite + Unpin), frame: &Frame) -> Result<()> {
+pub async fn write_frame(
+    w: &mut (impl tokio::io::AsyncWrite + Unpin),
+    frame: &Frame,
+) -> Result<()> {
     let (ty, payload): (u8, Vec<u8>) = match frame {
         Frame::Data(bytes) => (TYPE_DATA, bytes.clone()),
         Frame::Resize { rows, cols } => {
@@ -66,7 +72,9 @@ pub async fn read_frame(r: &mut (impl tokio::io::AsyncRead + Unpin)) -> Result<F
         bail!("frame length {len} exceeds {MAX_FRAME_LEN} byte cap");
     }
     let mut payload = vec![0u8; len];
-    r.read_exact(&mut payload).await.context("reading frame payload")?;
+    r.read_exact(&mut payload)
+        .await
+        .context("reading frame payload")?;
     match ty {
         TYPE_DATA => Ok(Frame::Data(payload)),
         TYPE_RESIZE => {
@@ -91,7 +99,9 @@ mod tests {
     #[tokio::test]
     async fn round_trips_data_frame() {
         let mut buf = Vec::new();
-        write_frame(&mut buf, &Frame::Data(b"hello".to_vec())).await.unwrap();
+        write_frame(&mut buf, &Frame::Data(b"hello".to_vec()))
+            .await
+            .unwrap();
         let mut cursor = std::io::Cursor::new(buf);
         let frame = read_frame(&mut cursor).await.unwrap();
         assert_eq!(frame, Frame::Data(b"hello".to_vec()));
@@ -100,10 +110,24 @@ mod tests {
     #[tokio::test]
     async fn round_trips_resize_frame() {
         let mut buf = Vec::new();
-        write_frame(&mut buf, &Frame::Resize { rows: 40, cols: 120 }).await.unwrap();
+        write_frame(
+            &mut buf,
+            &Frame::Resize {
+                rows: 40,
+                cols: 120,
+            },
+        )
+        .await
+        .unwrap();
         let mut cursor = std::io::Cursor::new(buf);
         let frame = read_frame(&mut cursor).await.unwrap();
-        assert_eq!(frame, Frame::Resize { rows: 40, cols: 120 });
+        assert_eq!(
+            frame,
+            Frame::Resize {
+                rows: 40,
+                cols: 120
+            }
+        );
     }
 
     #[tokio::test]

@@ -190,21 +190,28 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("marker") => {
             let path = args.get(2).expect("marker requires a <path> argument");
-            std::fs::write(path, b"ran").unwrap_or_else(|e| panic!("write marker file {path}: {e}"));
+            std::fs::write(path, b"ran")
+                .unwrap_or_else(|e| panic!("write marker file {path}: {e}"));
         }
         Some("exit") => {
             let code_str = args.get(2).expect("exit requires a <code> argument");
-            let code: i32 = code_str.parse().unwrap_or_else(|e| panic!("parse exit code {code_str:?}: {e}"));
+            let code: i32 = code_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse exit code {code_str:?}: {e}"));
             std::process::exit(code);
         }
         Some("sleep") => {
             let secs_str = args.get(2).expect("sleep requires a <secs> argument");
-            let secs: u64 = secs_str.parse().unwrap_or_else(|e| panic!("parse sleep secs {secs_str:?}: {e}"));
+            let secs: u64 = secs_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse sleep secs {secs_str:?}: {e}"));
             std::thread::sleep(std::time::Duration::from_secs(secs));
         }
         Some("spawn-abandon") => {
             let n_str = args.get(2).expect("spawn-abandon requires an <n> argument");
-            let n: usize = n_str.parse().unwrap_or_else(|e| panic!("parse spawn-abandon count {n_str:?}: {e}"));
+            let n: usize = n_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse spawn-abandon count {n_str:?}: {e}"));
             let count_path = args.get(3);
             let mut spawned: usize = 0;
             for _ in 0..n {
@@ -264,7 +271,9 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
         Some("ignore-sigterm") => {
-            let secs_str = args.get(2).expect("ignore-sigterm requires a <secs> argument");
+            let secs_str = args
+                .get(2)
+                .expect("ignore-sigterm requires a <secs> argument");
             let secs: u64 = secs_str
                 .parse()
                 .unwrap_or_else(|e| panic!("parse ignore-sigterm secs {secs_str:?}: {e}"));
@@ -329,7 +338,9 @@ fn main() {
         }
         Some("alloc-hold") => {
             let mib_str = args.get(2).expect("alloc-hold requires a <mib> argument");
-            let mib: usize = mib_str.parse().unwrap_or_else(|e| panic!("parse alloc-hold mib {mib_str:?}: {e}"));
+            let mib: usize = mib_str
+                .parse()
+                .unwrap_or_else(|e| panic!("parse alloc-hold mib {mib_str:?}: {e}"));
             const ONE_MIB: usize = 1024 * 1024;
             const STEP_DELAY: std::time::Duration = std::time::Duration::from_millis(8);
             // Grown incrementally (not one big `vec![0xAB; mib * ONE_MIB]`)
@@ -353,8 +364,12 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(300));
         }
         Some("copyup-write") => {
-            let path = args.get(2).expect("copyup-write requires a <path> argument");
-            let delay_ms_str = args.get(3).expect("copyup-write requires a <delay-ms> argument");
+            let path = args
+                .get(2)
+                .expect("copyup-write requires a <path> argument");
+            let delay_ms_str = args
+                .get(3)
+                .expect("copyup-write requires a <delay-ms> argument");
             let delay_ms: u64 = delay_ms_str
                 .parse()
                 .unwrap_or_else(|e| panic!("parse copyup-write delay-ms {delay_ms_str:?}: {e}"));
@@ -366,17 +381,23 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(5));
         }
         Some("hook-marker") => {
-            let path = args.get(2).expect("hook-marker requires a <file-path> argument");
-            let phase = args.get(3).expect("hook-marker requires a <phase-label> argument");
+            let path = args
+                .get(2)
+                .expect("hook-marker requires a <file-path> argument");
+            let phase = args
+                .get(3)
+                .expect("hook-marker requires a <phase-label> argument");
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(path)
                 .unwrap_or_else(|e| panic!("open hook-marker file {path}: {e}"));
-            writeln!(f, "{phase}").unwrap_or_else(|e| panic!("append to hook-marker file {path}: {e}"));
+            writeln!(f, "{phase}")
+                .unwrap_or_else(|e| panic!("append to hook-marker file {path}: {e}"));
         }
         Some("trigger-personality") => {
+            // SAFETY: safe with documented preconditions; see surrounding context.
             let _ = unsafe { libc::personality(0xffffffff) };
             std::thread::sleep(std::time::Duration::from_secs(3));
         }

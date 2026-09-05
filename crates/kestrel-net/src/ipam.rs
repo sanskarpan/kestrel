@@ -35,12 +35,19 @@ impl Ipam {
     /// state, so it's never handed out as a container address.
     pub fn load(subnet: Ipv4Network, gateway: Ipv4Addr, state_path: PathBuf) -> Result<Self> {
         let state = if state_path.is_file() {
-            let data = fs::read(&state_path).with_context(|| format!("reading {}", state_path.display()))?;
-            serde_json::from_slice(&data).with_context(|| format!("parsing {}", state_path.display()))?
+            let data = fs::read(&state_path)
+                .with_context(|| format!("reading {}", state_path.display()))?;
+            serde_json::from_slice(&data)
+                .with_context(|| format!("parsing {}", state_path.display()))?
         } else {
             IpamState::default()
         };
-        Ok(Ipam { subnet, gateway, state_path, state })
+        Ok(Ipam {
+            subnet,
+            gateway,
+            state_path,
+            state,
+        })
     }
 
     fn is_reserved(&self, ip: Ipv4Addr) -> bool {
@@ -81,7 +88,10 @@ impl Ipam {
     /// itself), releasing anything whose owner isn't in that set. Called
     /// on daemon start to recover from a crash mid-lifecycle. Returns
     /// the addresses actually swept.
-    pub fn sweep(&mut self, live_owner_ids: &std::collections::HashSet<String>) -> Result<Vec<Ipv4Addr>> {
+    pub fn sweep(
+        &mut self,
+        live_owner_ids: &std::collections::HashSet<String>,
+    ) -> Result<Vec<Ipv4Addr>> {
         let stale: Vec<u32> = self
             .state
             .allocated
@@ -107,7 +117,13 @@ impl Ipam {
         let tmp_path = self.state_path.with_extension("tmp");
         let data = serde_json::to_vec_pretty(&self.state).context("serializing IPAM state")?;
         fs::write(&tmp_path, &data).with_context(|| format!("writing {}", tmp_path.display()))?;
-        fs::rename(&tmp_path, &self.state_path).with_context(|| format!("renaming {} to {}", tmp_path.display(), self.state_path.display()))?;
+        fs::rename(&tmp_path, &self.state_path).with_context(|| {
+            format!(
+                "renaming {} to {}",
+                tmp_path.display(),
+                self.state_path.display()
+            )
+        })?;
         Ok(())
     }
 }
@@ -127,9 +143,21 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut ipam = fresh(tmp.path());
         let a = ipam.allocate("c1").unwrap();
-        assert_ne!(a, "172.31.0.0".parse::<Ipv4Addr>().unwrap(), "must not hand out the network address");
-        assert_ne!(a, "172.31.0.1".parse::<Ipv4Addr>().unwrap(), "must not hand out the gateway");
-        assert_ne!(a, "172.31.0.7".parse::<Ipv4Addr>().unwrap(), "must not hand out the broadcast address");
+        assert_ne!(
+            a,
+            "172.31.0.0".parse::<Ipv4Addr>().unwrap(),
+            "must not hand out the network address"
+        );
+        assert_ne!(
+            a,
+            "172.31.0.1".parse::<Ipv4Addr>().unwrap(),
+            "must not hand out the gateway"
+        );
+        assert_ne!(
+            a,
+            "172.31.0.7".parse::<Ipv4Addr>().unwrap(),
+            "must not hand out the broadcast address"
+        );
     }
 
     #[test]
@@ -139,9 +167,15 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for i in 0..5 {
             let ip = ipam.allocate(&format!("c{i}")).unwrap();
-            assert!(seen.insert(ip), "allocate must never hand out the same address twice");
+            assert!(
+                seen.insert(ip),
+                "allocate must never hand out the same address twice"
+            );
         }
-        assert!(ipam.allocate("overflow").is_err(), "must error once the subnet is exhausted");
+        assert!(
+            ipam.allocate("overflow").is_err(),
+            "must error once the subnet is exhausted"
+        );
     }
 
     #[test]
@@ -151,7 +185,10 @@ mod tests {
         let ip = ipam.allocate("c1").unwrap();
         ipam.release(ip).unwrap();
         let ip2 = ipam.allocate("c2").unwrap();
-        assert_eq!(ip, ip2, "a released address should become allocatable again");
+        assert_eq!(
+            ip, ip2,
+            "a released address should become allocatable again"
+        );
     }
 
     #[test]
@@ -171,7 +208,10 @@ mod tests {
         seen.insert(ip);
         for i in 0..4 {
             let next = reloaded.allocate(&format!("d{i}")).unwrap();
-            assert!(seen.insert(next), "reloaded state must remember the earlier allocation");
+            assert!(
+                seen.insert(next),
+                "reloaded state must remember the earlier allocation"
+            );
         }
     }
 
@@ -193,7 +233,10 @@ mod tests {
         seen.insert(ip_dead);
         for i in 0..3 {
             let next = ipam.allocate(&format!("new{i}")).unwrap();
-            assert!(!seen.remove(&next) || next == ip_dead, "must not reallocate the still-live address");
+            assert!(
+                !seen.remove(&next) || next == ip_dead,
+                "must not reallocate the still-live address"
+            );
         }
     }
 }

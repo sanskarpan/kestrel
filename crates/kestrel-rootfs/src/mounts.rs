@@ -18,21 +18,28 @@ const STANDARD_MOUNTS: &[StandardMount] = &[
     StandardMount {
         relative_target: "proc",
         fstype: "proc",
-        flags: MsFlags::from_bits_truncate(MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits()),
+        flags: MsFlags::from_bits_truncate(
+            MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits(),
+        ),
         data: "",
     },
     StandardMount {
         relative_target: "sys",
         fstype: "sysfs",
         flags: MsFlags::from_bits_truncate(
-            MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits() | MsFlags::MS_RDONLY.bits(),
+            MsFlags::MS_NOSUID.bits()
+                | MsFlags::MS_NOEXEC.bits()
+                | MsFlags::MS_NODEV.bits()
+                | MsFlags::MS_RDONLY.bits(),
         ),
         data: "",
     },
     StandardMount {
         relative_target: "dev",
         fstype: "tmpfs",
-        flags: MsFlags::from_bits_truncate(MsFlags::MS_NOSUID.bits() | MsFlags::MS_STRICTATIME.bits()),
+        flags: MsFlags::from_bits_truncate(
+            MsFlags::MS_NOSUID.bits() | MsFlags::MS_STRICTATIME.bits(),
+        ),
         data: "mode=755,size=65536k",
     },
     StandardMount {
@@ -68,13 +75,17 @@ const STANDARD_MOUNTS: &[StandardMount] = &[
     StandardMount {
         relative_target: "dev/shm",
         fstype: "tmpfs",
-        flags: MsFlags::from_bits_truncate(MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits()),
+        flags: MsFlags::from_bits_truncate(
+            MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits(),
+        ),
         data: "mode=1777,size=65536k",
     },
     StandardMount {
         relative_target: "dev/mqueue",
         fstype: "mqueue",
-        flags: MsFlags::from_bits_truncate(MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits()),
+        flags: MsFlags::from_bits_truncate(
+            MsFlags::MS_NOSUID.bits() | MsFlags::MS_NOEXEC.bits() | MsFlags::MS_NODEV.bits(),
+        ),
         data: "",
     },
 ];
@@ -86,12 +97,36 @@ struct DeviceSpec {
 }
 
 const DEFAULT_DEVICES: &[DeviceSpec] = &[
-    DeviceSpec { name: "null", major: 1, minor: 3 },
-    DeviceSpec { name: "zero", major: 1, minor: 5 },
-    DeviceSpec { name: "full", major: 1, minor: 7 },
-    DeviceSpec { name: "random", major: 1, minor: 8 },
-    DeviceSpec { name: "urandom", major: 1, minor: 9 },
-    DeviceSpec { name: "tty", major: 5, minor: 0 },
+    DeviceSpec {
+        name: "null",
+        major: 1,
+        minor: 3,
+    },
+    DeviceSpec {
+        name: "zero",
+        major: 1,
+        minor: 5,
+    },
+    DeviceSpec {
+        name: "full",
+        major: 1,
+        minor: 7,
+    },
+    DeviceSpec {
+        name: "random",
+        major: 1,
+        minor: 8,
+    },
+    DeviceSpec {
+        name: "urandom",
+        major: 1,
+        minor: 9,
+    },
+    DeviceSpec {
+        name: "tty",
+        major: 5,
+        minor: 0,
+    },
 ];
 
 /// Mounts `/proc`, `/sys`, `/dev` (tmpfs), `/dev/pts`, `/dev/shm`,
@@ -114,9 +149,14 @@ pub fn setup_standard_mounts(rootfs: &Path) -> Result<()> {
     for m in STANDARD_MOUNTS {
         let target = rootfs.join(m.relative_target);
         fs::create_dir_all(&target).with_context(|| format!("creating {}", target.display()))?;
-        let data = if m.data.is_empty() { None } else { Some(m.data) };
-        mount(Some(m.fstype), &target, Some(m.fstype), m.flags, data)
-            .with_context(|| format!("mounting {} ({}) at {}", m.fstype, m.data, target.display()))?;
+        let data = if m.data.is_empty() {
+            None
+        } else {
+            Some(m.data)
+        };
+        mount(Some(m.fstype), &target, Some(m.fstype), m.flags, data).with_context(|| {
+            format!("mounting {} ({}) at {}", m.fstype, m.data, target.display())
+        })?;
     }
 
     // `mknod(2)` for a character/block device special file is disallowed
@@ -154,7 +194,9 @@ pub fn setup_standard_mounts(rootfs: &Path) -> Result<()> {
     // `fs::File::create` calls to collide with).
     if let Err(e) = create_default_devices(rootfs) {
         if is_eperm(&e) {
-            bind_default_devices(rootfs).context("mknod was disallowed (EPERM); falling back to bind-mounting host devices")?;
+            bind_default_devices(rootfs).context(
+                "mknod was disallowed (EPERM); falling back to bind-mounting host devices",
+            )?;
         } else {
             return Err(e);
         }
@@ -174,7 +216,10 @@ pub fn setup_standard_mounts(rootfs: &Path) -> Result<()> {
 /// downcast-through-the-`anyhow`-chain convention as `kestrel-runtime`'s
 /// `create.rs::is_known_mount_pin_einval`.
 fn is_eperm(e: &anyhow::Error) -> bool {
-    matches!(e.downcast_ref::<nix::errno::Errno>(), Some(nix::errno::Errno::EPERM))
+    matches!(
+        e.downcast_ref::<nix::errno::Errno>(),
+        Some(nix::errno::Errno::EPERM)
+    )
 }
 
 /// Creates `/dev/{null,zero,full,random,urandom,tty}` as character devices.
@@ -185,8 +230,13 @@ pub fn create_default_devices(rootfs: &Path) -> Result<()> {
     for d in DEFAULT_DEVICES {
         let path = dev.join(d.name);
         let _ = fs::remove_file(&path);
-        mknod(&path, SFlag::S_IFCHR, Mode::from_bits_truncate(0o666), makedev(d.major, d.minor))
-            .with_context(|| format!("mknod {} ({}:{})", path.display(), d.major, d.minor))?;
+        mknod(
+            &path,
+            SFlag::S_IFCHR,
+            Mode::from_bits_truncate(0o666),
+            makedev(d.major, d.minor),
+        )
+        .with_context(|| format!("mknod {} ({}:{})", path.display(), d.major, d.minor))?;
     }
     Ok(())
 }
@@ -234,7 +284,8 @@ pub fn bind_mount_file(source: &Path, rootfs: &Path, relative_target: &Path) -> 
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     if !target.exists() {
-        fs::File::create(&target).with_context(|| format!("creating bind-mount target {}", target.display()))?;
+        fs::File::create(&target)
+            .with_context(|| format!("creating bind-mount target {}", target.display()))?;
     }
     // Two-call MS_BIND then MS_BIND|MS_RDONLY footgun (this project's own
     // established lesson from Phase 4 — a single mount() call combining
@@ -242,8 +293,20 @@ pub fn bind_mount_file(source: &Path, rootfs: &Path, relative_target: &Path) -> 
     // does NOT apply here: this bind mount is read-write (the FIFO must be
     // writable-through for `start` to unblock it), so only the plain
     // MS_BIND call is needed, no second remount call.
-    mount(Some(source), &target, None::<&str>, MsFlags::MS_BIND, None::<&str>)
-        .with_context(|| format!("bind-mounting {} onto {}", source.display(), target.display()))?;
+    mount(
+        Some(source),
+        &target,
+        None::<&str>,
+        MsFlags::MS_BIND,
+        None::<&str>,
+    )
+    .with_context(|| {
+        format!(
+            "bind-mounting {} onto {}",
+            source.display(),
+            target.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -259,10 +322,23 @@ pub fn bind_default_devices(rootfs: &Path) -> Result<()> {
     let dev = rootfs.join("dev");
     for d in DEFAULT_DEVICES {
         let target = dev.join(d.name);
-        fs::File::create(&target).with_context(|| format!("creating bind target {}", target.display()))?;
+        fs::File::create(&target)
+            .with_context(|| format!("creating bind target {}", target.display()))?;
         let host_src = Path::new("/dev").join(d.name);
-        mount(Some(&host_src), &target, None::<&str>, MsFlags::MS_BIND, None::<&str>)
-            .with_context(|| format!("bind-mounting {} onto {}", host_src.display(), target.display()))?;
+        mount(
+            Some(&host_src),
+            &target,
+            None::<&str>,
+            MsFlags::MS_BIND,
+            None::<&str>,
+        )
+        .with_context(|| {
+            format!(
+                "bind-mounting {} onto {}",
+                host_src.display(),
+                target.display()
+            )
+        })?;
     }
     Ok(())
 }

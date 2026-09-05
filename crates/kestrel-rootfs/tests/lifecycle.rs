@@ -35,23 +35,40 @@ fn test_full_lifecycle_two_layers_with_whiteout_through_pivot_root() {
 
         // Layer 1 (base): two files.
         let base_diff = store.ensure_layer("sha256:base", None).unwrap();
-        let base_tar = build_tar(&[("keep.txt", b"survives"), ("removed.txt", b"deleted-by-top-layer")]);
+        let base_tar = build_tar(&[
+            ("keep.txt", b"survives"),
+            ("removed.txt", b"deleted-by-top-layer"),
+        ]);
         apply_layer(Cursor::new(base_tar), &base_diff, false).expect("apply base layer");
 
         // Layer 2 (top): whites out removed.txt, adds a new file.
-        let top_diff = store.ensure_layer("sha256:top", Some("sha256:base")).unwrap();
+        let top_diff = store
+            .ensure_layer("sha256:top", Some("sha256:base"))
+            .unwrap();
         let top_tar = build_tar(&[("new.txt", b"added-by-top-layer"), (".wh.removed.txt", b"")]);
         apply_layer(Cursor::new(top_tar), &top_diff, false).expect("apply top layer");
 
         let snapshotter = Snapshotter::new(data_dir.clone(), false);
         let snap = snapshotter
-            .prepare_snapshot("c-lifecycle-1", &["sha256:base".into(), "sha256:top".into()])
+            .prepare_snapshot(
+                "c-lifecycle-1",
+                &["sha256:base".into(), "sha256:top".into()],
+            )
             .unwrap();
         mount_overlay(&data_dir, &snap, false, false, false).expect("mount_overlay");
 
-        assert_eq!(fs::read_to_string(snap.merged.join("keep.txt")).unwrap(), "survives");
-        assert_eq!(fs::read_to_string(snap.merged.join("new.txt")).unwrap(), "added-by-top-layer");
-        assert!(!snap.merged.join("removed.txt").exists(), "whiteout must hide the base-layer file in the merged view");
+        assert_eq!(
+            fs::read_to_string(snap.merged.join("keep.txt")).unwrap(),
+            "survives"
+        );
+        assert_eq!(
+            fs::read_to_string(snap.merged.join("new.txt")).unwrap(),
+            "added-by-top-layer"
+        );
+        assert!(
+            !snap.merged.join("removed.txt").exists(),
+            "whiteout must hide the base-layer file in the merged view"
+        );
 
         // A host-only marker: exists in this test process's real root
         // (verified against the VM: /etc/os-release -> ../usr/lib/os-release
@@ -70,7 +87,10 @@ fn test_full_lifecycle_two_layers_with_whiteout_through_pivot_root() {
         pivot_root(&merged).expect("pivot_root");
 
         assert_eq!(fs::read_to_string("/keep.txt").unwrap(), "survives");
-        assert_eq!(fs::read_to_string("/new.txt").unwrap(), "added-by-top-layer");
+        assert_eq!(
+            fs::read_to_string("/new.txt").unwrap(),
+            "added-by-top-layer"
+        );
         assert!(!std::path::Path::new("/removed.txt").exists());
         assert!(
             !std::path::Path::new(host_only_marker).exists(),
@@ -78,7 +98,10 @@ fn test_full_lifecycle_two_layers_with_whiteout_through_pivot_root() {
         );
 
         let mountinfo = fs::read_to_string("/proc/self/mountinfo").unwrap();
-        assert!(mountinfo.lines().any(|l| l.contains("proc")), "post-pivot /proc must still be mounted");
+        assert!(
+            mountinfo.lines().any(|l| l.contains("proc")),
+            "post-pivot /proc must still be mounted"
+        );
 
         // Prove apply_default_masks actually took effect, not merely that
         // it was called without error: `/proc/sys` is one of
@@ -94,7 +117,10 @@ fn test_full_lifecycle_two_layers_with_whiteout_through_pivot_root() {
         // Same closure-the-gap logic for setup_standard_mounts: prove the
         // device nodes it creates are actually present post-pivot, not
         // merely that the call didn't error.
-        assert!(std::path::Path::new("/dev/null").exists(), "post-pivot /dev/null must exist via setup_standard_mounts");
+        assert!(
+            std::path::Path::new("/dev/null").exists(),
+            "post-pivot /dev/null must exist via setup_standard_mounts"
+        );
     });
 
     let host_mountinfo_after = fs::read_to_string("/proc/self/mountinfo").unwrap();

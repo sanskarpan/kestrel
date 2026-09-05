@@ -50,7 +50,10 @@ async fn wait_for_path(path: &Path, bound: Duration) {
     let deadline = tokio::time::Instant::now() + bound;
     while !path.exists() {
         if tokio::time::Instant::now() >= deadline {
-            panic!("timed out after {bound:?} waiting for {} to exist", path.display());
+            panic!(
+                "timed out after {bound:?} waiting for {} to exist",
+                path.display()
+            );
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -60,7 +63,11 @@ async fn wait_for_path(path: &Path, bound: Duration) {
 /// (lossily-decoded) bytes into a string, until `needle` appears or
 /// `bound` elapses (in which case the test fails with a clear message
 /// rather than hanging).
-async fn read_until_contains(read_half: &mut (impl tokio::io::AsyncRead + Unpin), needle: &str, bound: Duration) -> String {
+async fn read_until_contains(
+    read_half: &mut (impl tokio::io::AsyncRead + Unpin),
+    needle: &str,
+    bound: Duration,
+) -> String {
     let fut = async {
         let mut acc = String::new();
         loop {
@@ -110,15 +117,26 @@ fn test_shim_captures_output_and_survives_kestreld_analog() {
     // The shim process only exits once daemon::run's read loop has
     // observed EOF and flushed the log — by the time `output()` returns,
     // output.jsonl is fully written, no polling needed.
-    let log_path = data_dir.path().join("containers").join(id).join("output.jsonl");
-    let contents = std::fs::read_to_string(&log_path).unwrap_or_else(|e| panic!("reading {}: {e}", log_path.display()));
+    let log_path = data_dir
+        .path()
+        .join("containers")
+        .join(id)
+        .join("output.jsonl");
+    let contents = std::fs::read_to_string(&log_path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", log_path.display()));
 
     let lines: Vec<Value> = contents
         .lines()
-        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("invalid JSON log line {l:?}: {e}")))
+        .map(|l| {
+            serde_json::from_str(l).unwrap_or_else(|e| panic!("invalid JSON log line {l:?}: {e}"))
+        })
         .collect();
 
-    assert_eq!(lines.len(), 2, "expected exactly 2 log lines, got: {contents}");
+    assert_eq!(
+        lines.len(),
+        2,
+        "expected exactly 2 log lines, got: {contents}"
+    );
     assert_eq!(lines[0]["stream"], "stdout");
     assert_eq!(lines[0]["msg"], "one");
     assert!(lines[0]["ts"].is_string());
@@ -190,7 +208,9 @@ async fn test_attach_sock_relays_bytes_both_ways() {
     let attach_sock = run_dir.path().join(id).join("attach.sock");
     wait_for_path(&attach_sock, Duration::from_secs(5)).await;
 
-    let stream = UnixStream::connect(&attach_sock).await.expect("connect to attach.sock");
+    let stream = UnixStream::connect(&attach_sock)
+        .await
+        .expect("connect to attach.sock");
     let (mut read_half, mut write_half) = stream.into_split();
 
     write_frame(&mut write_half, &Frame::Data(b"hello\n".to_vec()))
@@ -201,7 +221,10 @@ async fn test_attach_sock_relays_bytes_both_ways() {
     // stdin -> cat's stdout -> PTY master -> broadcast -> back over the
     // socket to us.
     let received = read_until_contains(&mut read_half, "hello", Duration::from_secs(5)).await;
-    assert!(received.contains("hello"), "expected echoed 'hello' in attach stream, got: {received:?}");
+    assert!(
+        received.contains("hello"),
+        "expected echoed 'hello' in attach stream, got: {received:?}"
+    );
 
     let _ = child.kill();
     let _ = child.wait();
@@ -246,7 +269,11 @@ async fn test_resize_issues_tiocswinsz() {
         // process forever after every test run; capping the iteration
         // count guarantees this process exits on its own well within the
         // test's own lifetime, independent of the shim's/PTY's fate.
-        .args(["/bin/sh", "-c", "(i=0; while [ $i -lt 100 ]; do stty size <&1; sleep 0.05; i=$((i+1)); done) &"])
+        .args([
+            "/bin/sh",
+            "-c",
+            "(i=0; while [ $i -lt 100 ]; do stty size <&1; sleep 0.05; i=$((i+1)); done) &",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -255,12 +282,20 @@ async fn test_resize_issues_tiocswinsz() {
     let attach_sock = run_dir.path().join(id).join("attach.sock");
     wait_for_path(&attach_sock, Duration::from_secs(5)).await;
 
-    let stream = UnixStream::connect(&attach_sock).await.expect("connect to attach.sock");
+    let stream = UnixStream::connect(&attach_sock)
+        .await
+        .expect("connect to attach.sock");
     let (mut read_half, mut write_half) = stream.into_split();
 
-    write_frame(&mut write_half, &Frame::Resize { rows: 40, cols: 120 })
-        .await
-        .expect("write Resize frame");
+    write_frame(
+        &mut write_half,
+        &Frame::Resize {
+            rows: 40,
+            cols: 120,
+        },
+    )
+    .await
+    .expect("write Resize frame");
 
     // `stty size` prints "<rows> <cols>" — "40 120" only appears once
     // TIOCSWINSZ has genuinely taken effect on the PTY.

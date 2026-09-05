@@ -164,7 +164,12 @@ pub async fn teardown_bridge_network(
     // down both together), so no separate in-netns deletion is needed.
     let (host_if, _peer_if) = crate::veth::veth_names(id);
     if let Some(idx) = find_link_index(handle, &host_if).await? {
-        handle.link().del(idx).execute().await.with_context(|| format!("deleting {host_if}"))?;
+        handle
+            .link()
+            .del(idx)
+            .execute()
+            .await
+            .with_context(|| format!("deleting {host_if}"))?;
     }
 
     for (host_port, container_port) in published_ports {

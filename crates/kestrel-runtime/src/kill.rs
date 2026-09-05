@@ -40,7 +40,10 @@ mod tests {
     fn test_kill_sends_signal_to_pid_recorded_in_state_json() {
         let run_dir = tempfile::tempdir().unwrap();
         let id = "kill-pid-test";
-        let mut child = Command::new("sleep").arg("30").spawn().expect("spawn sleep");
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
         let pid = child.id() as i32;
 
         let state = kestrel_oci::state::State {
@@ -147,7 +150,12 @@ mod tests {
         // so use enough children that a targeted-pid kill would visibly
         // leave survivors.
         let mut children: Vec<std::process::Child> = (0..3)
-            .map(|_| Command::new("sleep").arg("30").spawn().expect("spawn sleep"))
+            .map(|_| {
+                Command::new("sleep")
+                    .arg("30")
+                    .spawn()
+                    .expect("spawn sleep")
+            })
             .collect();
         for child in &children {
             cgroup

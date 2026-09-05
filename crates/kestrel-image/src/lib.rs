@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 pub mod apply;
 pub mod auth;
 pub mod digest;
@@ -35,7 +37,9 @@ pub mod test_util {
             header.set_size(contents.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            builder.append_data(&mut header, path, Cursor::new(*contents)).unwrap();
+            builder
+                .append_data(&mut header, path, Cursor::new(*contents))
+                .unwrap();
         }
         builder.into_inner().unwrap()
     }

@@ -14,10 +14,13 @@ use kestrel_oci::runtime::LinuxCapabilities;
 /// two by name, not by hand-maintaining a parallel enum mapping — any
 /// capability either crate adds in the future just works as long as both
 /// sides agree on the underlying kernel capability name.
-pub fn translate_capability(oci_cap: kestrel_oci::runtime::Capability) -> Result<::caps::Capability> {
+pub fn translate_capability(
+    oci_cap: kestrel_oci::runtime::Capability,
+) -> Result<::caps::Capability> {
     let name = format!("CAP_{oci_cap}");
-    ::caps::Capability::from_str(&name)
-        .with_context(|| format!("no caps::Capability matching oci capability {oci_cap} (looked up as {name:?})"))
+    ::caps::Capability::from_str(&name).with_context(|| {
+        format!("no caps::Capability matching oci capability {oci_cap} (looked up as {name:?})")
+    })
 }
 
 use ::caps::CapSet;
@@ -101,13 +104,16 @@ pub fn apply_capabilities(caps: Option<&LinuxCapabilities>) -> Result<()> {
     }
     if let Some(ambient) = c.ambient() {
         for cap in translate_set(ambient)? {
-            ::caps::raise(None, CapSet::Ambient, cap).with_context(|| format!("raising {cap:?} into ambient"))?;
+            ::caps::raise(None, CapSet::Ambient, cap)
+                .with_context(|| format!("raising {cap:?} into ambient"))?;
         }
     }
     Ok(())
 }
 
-fn translate_set(oci_caps: &kestrel_oci::runtime::Capabilities) -> Result<HashSet<::caps::Capability>> {
+fn translate_set(
+    oci_caps: &kestrel_oci::runtime::Capabilities,
+) -> Result<HashSet<::caps::Capability>> {
     oci_caps.iter().map(|c| translate_capability(*c)).collect()
 }
 
@@ -122,10 +128,20 @@ mod translate_tests {
     #[test]
     fn test_translate_capability_covers_the_default_set() {
         for cap in [
-            OciCap::Chown, OciCap::DacOverride, OciCap::Fsetid, OciCap::Fowner,
-            OciCap::Mknod, OciCap::NetRaw, OciCap::Setgid, OciCap::Setuid,
-            OciCap::Setfcap, OciCap::Setpcap, OciCap::NetBindService,
-            OciCap::SysChroot, OciCap::Kill, OciCap::AuditWrite,
+            OciCap::Chown,
+            OciCap::DacOverride,
+            OciCap::Fsetid,
+            OciCap::Fowner,
+            OciCap::Mknod,
+            OciCap::NetRaw,
+            OciCap::Setgid,
+            OciCap::Setuid,
+            OciCap::Setfcap,
+            OciCap::Setpcap,
+            OciCap::NetBindService,
+            OciCap::SysChroot,
+            OciCap::Kill,
+            OciCap::AuditWrite,
         ] {
             translate_capability(cap).unwrap_or_else(|e| panic!("{cap} failed to translate: {e}"));
         }
@@ -143,10 +159,20 @@ mod translate_tests {
 /// SysModule, NetAdmin, DacReadSearch (enables open_by_handle_at, the
 /// "Shocker" container-escape exploit).
 pub const DEFAULT_CAPABILITIES: &[OciCap] = &[
-    OciCap::Chown, OciCap::DacOverride, OciCap::Fsetid, OciCap::Fowner,
-    OciCap::Mknod, OciCap::NetRaw, OciCap::Setgid, OciCap::Setuid,
-    OciCap::Setfcap, OciCap::Setpcap, OciCap::NetBindService,
-    OciCap::SysChroot, OciCap::Kill, OciCap::AuditWrite,
+    OciCap::Chown,
+    OciCap::DacOverride,
+    OciCap::Fsetid,
+    OciCap::Fowner,
+    OciCap::Mknod,
+    OciCap::NetRaw,
+    OciCap::Setgid,
+    OciCap::Setuid,
+    OciCap::Setfcap,
+    OciCap::Setpcap,
+    OciCap::NetBindService,
+    OciCap::SysChroot,
+    OciCap::Kill,
+    OciCap::AuditWrite,
 ];
 
 /// `--cap-add`/`--cap-drop` resolution against [`DEFAULT_CAPABILITIES`].
@@ -194,6 +220,9 @@ mod resolve_tests {
     #[test]
     fn test_resolve_drop_wins_over_add_for_same_capability() {
         let resolved = resolve_cap_add_drop(&[OciCap::SysPtrace], &[OciCap::SysPtrace]);
-        assert!(!resolved.contains(&OciCap::SysPtrace), "an explicit drop must win over an explicit add for the same cap");
+        assert!(
+            !resolved.contains(&OciCap::SysPtrace),
+            "an explicit drop must win over an explicit add for the same cap"
+        );
     }
 }

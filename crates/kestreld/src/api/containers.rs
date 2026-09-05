@@ -101,7 +101,8 @@ pub async fn create_container(
     // rather than a continuation of an established scheme.
     let id = uuid::Uuid::new_v4().to_string();
 
-    let materialized = bundle::materialize_bundle(&id, &req, &state.run_dir, &state.data_dir).await?;
+    let materialized =
+        bundle::materialize_bundle(&id, &req, &state.run_dir, &state.data_dir).await?;
 
     match spawn_shim_and_create(&state, &id, &req, &materialized.bundle_dir).await {
         Ok(()) => {
@@ -117,7 +118,15 @@ pub async fn create_container(
                     "bundle::materialize_bundle always returns Some(pin) for network_mode \
                      \"bridge\" — see MaterializedBundle::netns_pin_to_cleanup_on_failure's own doc comment",
                 );
-                match network::attach(&id, &netns_pin, &state.data_dir, &state.network, &req.published_ports).await {
+                match network::attach(
+                    &id,
+                    &netns_pin,
+                    &state.data_dir,
+                    &state.network,
+                    &req.published_ports,
+                )
+                .await
+                {
                     Ok(info) => Some(info),
                     Err(e) => {
                         // The container itself was already created
@@ -143,14 +152,18 @@ pub async fn create_container(
                                 "failed to force-delete container after a failed network attach"
                             );
                         }
-                        if let Err(unpin_err) = kestrel_net::netns::teardown_netns(&state.run_dir, &id) {
+                        if let Err(unpin_err) =
+                            kestrel_net::netns::teardown_netns(&state.run_dir, &id)
+                        {
                             tracing::warn!(
                                 id,
                                 error = %unpin_err,
                                 "failed to tear down bridge-mode netns after a failed network attach"
                             );
                         }
-                        return Err(AppError::from(e.context("attaching bridge-mode networking")));
+                        return Err(AppError::from(
+                            e.context("attaching bridge-mode networking"),
+                        ));
                     }
                 }
             } else {
@@ -253,7 +266,10 @@ async fn spawn_shim_and_create(
     let mut child = cmd
         .spawn()
         .with_context(|| format!("spawning {}", state.shim_path.display()))?;
-    let stdout = child.stdout.take().context("kestrel-shim's stdout was not piped")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("kestrel-shim's stdout was not piped")?;
     let mut reader = tokio::io::BufReader::new(stdout);
     let mut line = String::new();
     let n = reader
@@ -317,7 +333,10 @@ async fn spawn_shim_and_create(
 /// exact same "unknown id -> 404, not a generic 500" lookup this module
 /// already established — reusing it rather than re-deriving a second copy
 /// of the same 15 lines.
-pub(crate) async fn get_registered(state: &AppState, id: &str) -> Result<ContainerHandle, AppError> {
+pub(crate) async fn get_registered(
+    state: &AppState,
+    id: &str,
+) -> Result<ContainerHandle, AppError> {
     state
         .registry
         .read()
@@ -381,9 +400,12 @@ pub async fn kill_container(
 ) -> Result<StatusCode, AppError> {
     get_registered(&state, &id).await?;
     let signal = query.signal.ok_or_else(|| {
-        AppError::bad_request("missing required ?signal=<name-or-number> query parameter, e.g. ?signal=SIGTERM")
+        AppError::bad_request(
+            "missing required ?signal=<name-or-number> query parameter, e.g. ?signal=SIGTERM",
+        )
     })?;
-    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, &signal]).await?;
+    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, &signal])
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -443,10 +465,18 @@ pub async fn stop_container(
         return Ok(StatusCode::OK);
     }
 
-    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, "SIGTERM"]).await?;
+    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, "SIGTERM"])
+        .await?;
 
     let grace = Duration::from_secs(state.stop_grace_period_s);
-    if poll_for_status(&state.run_dir, &id, kestrel_oci::state::Status::Stopped, grace).await {
+    if poll_for_status(
+        &state.run_dir,
+        &id,
+        kestrel_oci::state::Status::Stopped,
+        grace,
+    )
+    .await
+    {
         return Ok(StatusCode::OK);
     }
 
@@ -455,7 +485,8 @@ pub async fn stop_container(
         grace_period_s = state.stop_grace_period_s,
         "container did not stop within the grace period after SIGTERM — escalating to SIGKILL"
     );
-    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, "SIGKILL"]).await?;
+    runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["kill", &id, "SIGKILL"])
+        .await?;
 
     let killed = poll_for_status(
         &state.run_dir,
@@ -516,8 +547,17 @@ pub async fn delete_container(
         crate::metrics::check_terminal_transition(&state.last_status_map, &state.run_dir, &id).await
     {
         if to == kestrel_oci::state::Status::Stopped {
-            let exit_code = registry::read_state(&state.run_dir, &id).await.ok().and_then(|s| s.exit_code);
-            events::publish(&state.event_bus, Event::ContainerDie { id: id.clone(), exit_code });
+            let exit_code = registry::read_state(&state.run_dir, &id)
+                .await
+                .ok()
+                .and_then(|s| s.exit_code);
+            events::publish(
+                &state.event_bus,
+                Event::ContainerDie {
+                    id: id.clone(),
+                    exit_code,
+                },
+            );
         }
     }
 
@@ -528,7 +568,15 @@ pub async fn delete_container(
     runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &args).await?;
 
     if handle.meta.network_mode.as_deref() == Some("bridge") {
-        match network::teardown(&state.run_dir, &state.data_dir, &id, &state.network, &handle.meta).await {
+        match network::teardown(
+            &state.run_dir,
+            &state.data_dir,
+            &id,
+            &state.network,
+            &handle.meta,
+        )
+        .await
+        {
             Ok(()) => {
                 events::publish(&state.event_bus, Event::NetDetach { id: id.clone() });
             }
@@ -620,7 +668,11 @@ pub async fn list_containers(
     let mut views = Vec::with_capacity(handles.len());
     for handle in handles {
         if let Ok(s) = registry::read_state(&state.run_dir, &handle.id).await {
-            views.push(ContainerView::new(handle.id.clone(), s, handle.meta.clone()));
+            views.push(ContainerView::new(
+                handle.id.clone(),
+                s,
+                handle.meta.clone(),
+            ));
         }
     }
     Ok(Json(views))
@@ -748,7 +800,8 @@ fn set_pty_master_nonblocking(fd: &OwnedFd) -> anyhow::Result<()> {
     let raw = fd.as_raw_fd();
     let current = fcntl(raw, FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
     let current = OFlag::from_bits_truncate(current);
-    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK)).context("fcntl F_SETFL O_NONBLOCK")?;
+    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
+        .context("fcntl F_SETFL O_NONBLOCK")?;
     Ok(())
 }
 
@@ -760,7 +813,9 @@ fn set_pty_master_nonblocking(fd: &OwnedFd) -> anyhow::Result<()> {
 async fn read_from_fd(fd: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> std::io::Result<usize> {
     loop {
         let mut guard = fd.readable().await?;
-        match guard.try_io(|inner| nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)) {
+        match guard.try_io(|inner| {
+            nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)
+        }) {
             Ok(result) => return result,
             Err(_would_block) => continue,
         }
@@ -774,7 +829,9 @@ async fn write_to_fd(fd: &AsyncFd<OwnedFd>, buf: &[u8]) -> std::io::Result<()> {
     let mut offset = 0;
     while offset < buf.len() {
         let mut guard = fd.writable().await?;
-        match guard.try_io(|inner| nix::unistd::write(inner.get_ref(), &buf[offset..]).map_err(std::io::Error::from)) {
+        match guard.try_io(|inner| {
+            nix::unistd::write(inner.get_ref(), &buf[offset..]).map_err(std::io::Error::from)
+        }) {
             Ok(Ok(n)) => offset += n,
             Ok(Err(e)) => return Err(e),
             Err(_would_block) => continue,
@@ -821,9 +878,12 @@ async fn read_exec_init(socket: &mut WebSocket) -> anyhow::Result<ExecInit> {
         .context("reading exec init websocket message")?;
     match msg {
         Message::Text(text) => {
-            let init: ExecInit =
-                serde_json::from_str(&text).with_context(|| format!("parsing exec init message: {text:?}"))?;
-            anyhow::ensure!(!init.cmd.is_empty(), "exec init message's \"cmd\" must not be empty");
+            let init: ExecInit = serde_json::from_str(&text)
+                .with_context(|| format!("parsing exec init message: {text:?}"))?;
+            anyhow::ensure!(
+                !init.cmd.is_empty(),
+                "exec init message's \"cmd\" must not be empty"
+            );
             Ok(init)
         }
         other => anyhow::bail!(
@@ -867,7 +927,13 @@ async fn run_exec_session(mut socket: WebSocket, state: &AppState, id: &str) -> 
     let init = match read_exec_init(&mut socket).await {
         Ok(init) => init,
         Err(e) => {
-            send_exec_control(&mut socket, &ExecControlMessage::Error { message: e.to_string() }).await;
+            send_exec_control(
+                &mut socket,
+                &ExecControlMessage::Error {
+                    message: e.to_string(),
+                },
+            )
+            .await;
             let _ = socket.close().await;
             return Err(e);
         }
@@ -900,7 +966,7 @@ async fn run_exec_session(mut socket: WebSocket, state: &AppState, id: &str) -> 
             let mut buf = [0u8; 8192];
             loop {
                 match read_from_fd(&master, &mut buf).await {
-                    Ok(0) => break,                                         // defensive; PTYs signal via EIO, not 0
+                    Ok(0) => break, // defensive; PTYs signal via EIO, not 0
                     Err(e) if e.raw_os_error() == Some(libc::EIO) => break, // last slave closed
                     Err(_) => break,
                     Ok(n) => {
@@ -917,8 +983,14 @@ async fn run_exec_session(mut socket: WebSocket, state: &AppState, id: &str) -> 
             .stderr(Stdio::piped())
             .spawn()
             .context("spawning kestrel-runtime exec")?;
-        let stdout = child.stdout.take().context("kestrel-runtime exec's stdout was not piped")?;
-        let stderr = child.stderr.take().context("kestrel-runtime exec's stderr was not piped")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("kestrel-runtime exec's stdout was not piped")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("kestrel-runtime exec's stderr was not piped")?;
 
         let tx_out = output_tx.clone();
         tokio::spawn(read_pipe_to_channel(stdout, tx_out));
@@ -965,7 +1037,10 @@ async fn run_exec_session(mut socket: WebSocket, state: &AppState, id: &str) -> 
 
     input_task.abort();
 
-    let status = child.wait().await.context("waiting on kestrel-runtime exec")?;
+    let status = child
+        .wait()
+        .await
+        .context("waiting on kestrel-runtime exec")?;
     let exit_code = status.code();
 
     send_exec_control(&mut ws_sink, &ExecControlMessage::Exit { exit_code }).await;
@@ -980,7 +1055,10 @@ async fn run_exec_session(mut socket: WebSocket, state: &AppState, id: &str) -> 
 /// `tokio::process::Child{Stdout,Stderr}` are already `AsyncRead` directly
 /// (tokio wires their non-blocking-ness itself), so no manual `AsyncFd`
 /// plumbing is needed here the way the PTY branch above requires.
-async fn read_pipe_to_channel(mut reader: impl tokio::io::AsyncRead + Unpin, tx: tokio::sync::mpsc::Sender<Vec<u8>>) {
+async fn read_pipe_to_channel(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+    tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+) {
     let mut buf = [0u8; 8192];
     loop {
         match reader.read(&mut buf).await {
@@ -1071,7 +1149,11 @@ fn collect_top_entries(entrypoint_host_pid: i32) -> Vec<TopEntry> {
             // whole function. Skip it rather than erroring the whole
             // response over one racy process.
             let (container_pid, command) = read_nspid_and_comm(host_pid)?;
-            Some(TopEntry { host_pid, container_pid, command })
+            Some(TopEntry {
+                host_pid,
+                container_pid,
+                command,
+            })
         })
         .collect()
 }

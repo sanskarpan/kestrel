@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 toml = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "net", "fs", "io-util", "signal", "sync", "time"] }
+clap = { version = "4", features = ["derive"] }
 # Plan called for axum 0.7 ("axum's own repo has a #[cfg(unix)] compile-test
 # for exactly this"), but the resolved 0.7.9 (verified via `cargo add
 # --dry-run` inside the VM, then by reading its vendored src/serve.rs) only

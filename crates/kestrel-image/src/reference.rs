@@ -18,7 +18,11 @@ impl ImageReference {
     /// The registry HTTP API host to actually connect to — `docker.io`
     /// itself doesn't serve the registry API; `registry-1.docker.io` does.
     pub fn api_host(&self) -> &str {
-        if self.registry == "docker.io" { "registry-1.docker.io" } else { &self.registry }
+        if self.registry == "docker.io" {
+            "registry-1.docker.io"
+        } else {
+            &self.registry
+        }
     }
 
     /// What to request from `/v2/<name>/manifests/<reference>` — prefers
@@ -35,7 +39,10 @@ pub fn parse(input: &str) -> Result<ImageReference> {
     // Split off an @digest suffix first — it's unambiguous (the only `@`
     // this grammar allows) and must not be confused with a `:tag`.
     let (before_digest, digest) = match input.split_once('@') {
-        Some((rest, d)) => (rest, Some(d.parse::<Digest>().context("parsing @digest suffix")?)),
+        Some((rest, d)) => (
+            rest,
+            Some(d.parse::<Digest>().context("parsing @digest suffix")?),
+        ),
         None => (input, None),
     };
 
@@ -44,7 +51,9 @@ pub fn parse(input: &str) -> Result<ImageReference> {
     // registry host; otherwise the whole thing (minus an optional
     // trailing `:tag`) is the repository name under the default registry.
     let (registry, rest) = match before_digest.split_once('/') {
-        Some((first, rest)) if first.contains('.') || first.contains(':') || first == "localhost" => {
+        Some((first, rest))
+            if first.contains('.') || first.contains(':') || first == "localhost" =>
+        {
             (first.to_string(), rest.to_string())
         }
         _ => ("docker.io".to_string(), before_digest.to_string()),
@@ -68,7 +77,12 @@ pub fn parse(input: &str) -> Result<ImageReference> {
         repo_part
     };
 
-    Ok(ImageReference { registry, repository, tag, digest })
+    Ok(ImageReference {
+        registry,
+        repository,
+        tag,
+        digest,
+    })
 }
 
 #[cfg(test)]
@@ -124,7 +138,11 @@ mod tests {
         let r = parse(&format!("alpine:3.19@sha256:{digest_hex}")).unwrap();
         assert_eq!(r.tag, Some("3.19".to_string()));
         assert!(r.digest.is_some());
-        assert_eq!(r.manifest_reference(), format!("sha256:{digest_hex}"), "digest must win over tag when both present");
+        assert_eq!(
+            r.manifest_reference(),
+            format!("sha256:{digest_hex}"),
+            "digest must win over tag when both present"
+        );
     }
 
     #[test]

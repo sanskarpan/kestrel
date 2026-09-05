@@ -74,7 +74,13 @@ const LOWER_CHAIN_IDS_ANNOTATION: &str = "kestrel.lowerChainIds";
 /// same "no cancellation mechanism yet" posture as `metrics::spawn`/
 /// `events::spawn_consumer` (a later graceful-shutdown task, Phase 9
 /// Task 21, is the natural place to add one for all three).
-pub fn spawn(registry: Registry, run_dir: PathBuf, data_dir: PathBuf, interval: Duration, event_bus: EventBus) {
+pub fn spawn(
+    registry: Registry,
+    run_dir: PathBuf,
+    data_dir: PathBuf,
+    interval: Duration,
+    event_bus: EventBus,
+) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
         // Same reasoning as `metrics::spawn`'s own ticker: a slow tick
@@ -165,11 +171,17 @@ async fn scan_container(data_dir: &Path, id: &str) -> Result<Vec<CopyUpEvent>> {
 fn scan_container_blocking(data_dir: &Path, id: &str) -> Result<Vec<CopyUpEvent>> {
     let lower_chain_ids = resolve_lower_chain_ids(data_dir, id)?;
     let layer_store = LayerStore::new(data_dir.to_path_buf());
-    let diff_dirs: Vec<PathBuf> = lower_chain_ids.iter().map(|c| layer_store.diff_dir(c)).collect();
+    let diff_dirs: Vec<PathBuf> = lower_chain_ids
+        .iter()
+        .map(|c| layer_store.diff_dir(c))
+        .collect();
     let lowers: Vec<LowerLayer> = lower_chain_ids
         .iter()
         .zip(diff_dirs.iter())
-        .map(|(chain_id, diff_dir)| LowerLayer { chain_id: chain_id.as_str(), diff_dir: diff_dir.as_path() })
+        .map(|(chain_id, diff_dir)| LowerLayer {
+            chain_id: chain_id.as_str(),
+            diff_dir: diff_dir.as_path(),
+        })
         .collect();
 
     let upper_dir = data_dir.join("snapshots").join(id).join("upper");
@@ -181,10 +193,10 @@ fn scan_container_blocking(data_dir: &Path, id: &str) -> Result<Vec<CopyUpEvent>
 /// `stage_bundle_rootfs_as_synthetic_layer` fallback exactly.
 fn resolve_lower_chain_ids(data_dir: &Path, id: &str) -> Result<Vec<String>> {
     let config_path = data_dir.join("bundles").join(id).join("config.json");
-    let bytes =
-        std::fs::read(&config_path).with_context(|| format!("reading {}", config_path.display()))?;
-    let raw: RawSpec =
-        serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", config_path.display()))?;
+    let bytes = std::fs::read(&config_path)
+        .with_context(|| format!("reading {}", config_path.display()))?;
+    let raw: RawSpec = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parsing {}", config_path.display()))?;
     if let Some(annotations) = raw.spec.annotations() {
         if let Some(csv) = annotations.get(LOWER_CHAIN_IDS_ANNOTATION) {
             if !csv.trim().is_empty() {
@@ -295,12 +307,19 @@ mod tests {
             fixture_path.display()
         );
         std::fs::copy(&fixture_path, dest.join("fixture")).unwrap_or_else(|e| {
-            panic!("copy {} to {}: {e}", fixture_path.display(), dest.join("fixture").display())
+            panic!(
+                "copy {} to {}: {e}",
+                fixture_path.display(),
+                dest.join("fixture").display()
+            )
         });
         std::fs::set_permissions(dest.join("fixture"), std::fs::Permissions::from_mode(0o755))
             .expect("chmod fixture binary");
-        std::fs::write(dest.join("app.conf"), b"lower-layer-original-app-conf-content")
-            .expect("write lower-layer app.conf");
+        std::fs::write(
+            dest.join("app.conf"),
+            b"lower-layer-original-app-conf-content",
+        )
+        .expect("write lower-layer app.conf");
     }
 
     fn mount_cgroups(data_dir: &Path) -> MountGuard {
@@ -374,8 +393,16 @@ mod tests {
         (status, bytes.to_vec())
     }
 
-    async fn call_router_empty(app: axum::Router, method: &str, uri: String) -> (StatusCode, Vec<u8>) {
-        let request = Request::builder().method(method).uri(uri).body(Body::empty()).unwrap();
+    async fn call_router_empty(
+        app: axum::Router,
+        method: &str,
+        uri: String,
+    ) -> (StatusCode, Vec<u8>) {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(request).await.expect("router oneshot");
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -461,13 +488,19 @@ mod tests {
             .to_string();
 
         let state_path = run_dir.path().join(&id).join("state.json");
-        let created = kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
+        let created =
+            kestrel_oci::state::State::read(&state_path).expect("read state.json after create");
         let init_pid = nix::unistd::Pid::from_raw(created.pid.expect("pid recorded after create"));
         let process_guard = ProcessGuard(init_pid);
 
         let (start_status, start_resp) =
             call_router_empty(app.clone(), "POST", format!("/containers/{id}/start")).await;
-        assert_eq!(start_status, StatusCode::OK, "start failed: {}", String::from_utf8_lossy(&start_resp));
+        assert_eq!(
+            start_status,
+            StatusCode::OK,
+            "start failed: {}",
+            String::from_utf8_lossy(&start_resp)
+        );
 
         let running = poll_until(Duration::from_secs(10), || {
             kestrel_oci::state::State::read(&state_path)
@@ -475,14 +508,21 @@ mod tests {
                 .filter(|s| s.status == kestrel_oci::state::Status::Running)
         })
         .await;
-        assert!(running.is_some(), "container never reached Running after start");
+        assert!(
+            running.is_some(),
+            "container never reached Running after start"
+        );
 
         // ---- the first assertion: exactly one CopyUp event for
         // app.conf, with the real size of the FIRST write. ----
         let (first_path, first_size) = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match sub.recv().await.expect("event_bus recv") {
-                    events::Event::CopyUp { id: eid, path, size_bytes } if eid == id => {
+                    events::Event::CopyUp {
+                        id: eid,
+                        path,
+                        size_bytes,
+                    } if eid == id => {
                         return (path, size_bytes);
                     }
                     _ => continue, // a different, concurrently-run test's own container
@@ -506,7 +546,11 @@ mod tests {
         let second_event = tokio::time::timeout(Duration::from_secs(4), async {
             loop {
                 match sub.recv().await.expect("event_bus recv") {
-                    events::Event::CopyUp { id: eid, path, .. } if eid == id && path == "app.conf" => return,
+                    events::Event::CopyUp { id: eid, path, .. }
+                        if eid == id && path == "app.conf" =>
+                    {
+                        return
+                    }
                     _ => continue,
                 }
             }

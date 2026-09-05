@@ -40,7 +40,12 @@ fn process_for_user(uid: u32, gid: u32, additional_gids: Option<Vec<u32>>) -> Pr
     }
     let user = user_builder.build().unwrap();
 
-    let mut process = ProcessBuilder::default().args(vec!["true".to_string()]).cwd("/").user(user).build().unwrap();
+    let mut process = ProcessBuilder::default()
+        .args(vec!["true".to_string()])
+        .cwd("/")
+        .user(user)
+        .build()
+        .unwrap();
     process.set_capabilities(None);
     process.set_rlimits(None);
     process.set_no_new_privileges(None);
@@ -61,17 +66,45 @@ fn test_apply_all_sets_uid_gid_and_supplementary_groups() {
         apply_all(&process, None).expect("apply_all");
 
         let resuid = getresuid().expect("getresuid");
-        assert_eq!(resuid.real.as_raw(), target_uid, "real uid must land on the target");
-        assert_eq!(resuid.effective.as_raw(), target_uid, "effective uid must land on the target");
-        assert_eq!(resuid.saved.as_raw(), target_uid, "saved uid must land on the target");
+        assert_eq!(
+            resuid.real.as_raw(),
+            target_uid,
+            "real uid must land on the target"
+        );
+        assert_eq!(
+            resuid.effective.as_raw(),
+            target_uid,
+            "effective uid must land on the target"
+        );
+        assert_eq!(
+            resuid.saved.as_raw(),
+            target_uid,
+            "saved uid must land on the target"
+        );
 
         let resgid = getresgid().expect("getresgid");
-        assert_eq!(resgid.real.as_raw(), target_gid, "real gid must land on the target");
-        assert_eq!(resgid.effective.as_raw(), target_gid, "effective gid must land on the target");
-        assert_eq!(resgid.saved.as_raw(), target_gid, "saved gid must land on the target");
+        assert_eq!(
+            resgid.real.as_raw(),
+            target_gid,
+            "real gid must land on the target"
+        );
+        assert_eq!(
+            resgid.effective.as_raw(),
+            target_gid,
+            "effective gid must land on the target"
+        );
+        assert_eq!(
+            resgid.saved.as_raw(),
+            target_gid,
+            "saved gid must land on the target"
+        );
 
         let groups = getgroups().expect("getgroups");
-        assert_eq!(groups, vec![Gid::from_raw(extra_gid)], "supplementary groups must equal exactly what was requested");
+        assert_eq!(
+            groups,
+            vec![Gid::from_raw(extra_gid)],
+            "supplementary groups must equal exactly what was requested"
+        );
     });
 }
 
@@ -91,7 +124,10 @@ fn test_apply_all_empty_additional_gids_is_a_setgroups_no_op() {
         apply_all(&process, None).expect("apply_all with unset additional_gids");
 
         let after_unset = getgroups().expect("getgroups after unset additional_gids");
-        assert_eq!(after_unset, before, "unset additional_gids must leave supplementary groups untouched");
+        assert_eq!(
+            after_unset, before,
+            "unset additional_gids must leave supplementary groups untouched"
+        );
     });
 
     kestrel_ns::test_util::run_isolated(|| {
@@ -101,6 +137,9 @@ fn test_apply_all_empty_additional_gids_is_a_setgroups_no_op() {
         apply_all(&process, None).expect("apply_all with empty additional_gids");
 
         let after_empty = getgroups().expect("getgroups after empty additional_gids");
-        assert_eq!(after_empty, before, "explicitly-empty additional_gids must leave supplementary groups untouched");
+        assert_eq!(
+            after_empty, before,
+            "explicitly-empty additional_gids must leave supplementary groups untouched"
+        );
     });
 }

@@ -53,7 +53,10 @@ async fn test_create_netns_produces_a_distinct_pinned_namespace() {
     assert!(pin.is_file(), "pin file must exist");
 
     let pinned_ns = ns_identity(&pin);
-    assert_ne!(host_ns, pinned_ns, "pinned netns must be a genuinely new namespace, not the host's");
+    assert_ne!(
+        host_ns, pinned_ns,
+        "pinned netns must be a genuinely new namespace, not the host's"
+    );
 
     teardown_netns(run_dir, "test1").unwrap();
     assert!(!pin.exists(), "teardown must remove the pin file");
@@ -78,12 +81,18 @@ async fn test_nsenter_runs_closure_inside_pinned_namespace_and_restores() {
     // nsenter's closure must run synchronously on one thread — wrap in
     // block_in_place per netns.rs's own documented contract, run inside
     // a #[tokio::test(flavor = "multi_thread")].
-    let observed = tokio::task::block_in_place(|| nsenter(&pin, || Ok(current_thread_ns_identity())))
-        .unwrap();
-    assert_eq!(observed, pinned_ns, "closure must observe the target namespace, not the host's");
+    let observed =
+        tokio::task::block_in_place(|| nsenter(&pin, || Ok(current_thread_ns_identity()))).unwrap();
+    assert_eq!(
+        observed, pinned_ns,
+        "closure must observe the target namespace, not the host's"
+    );
 
     let host_ns_after = current_thread_ns_identity();
-    assert_eq!(host_ns_before, host_ns_after, "nsenter must restore the original namespace afterward");
+    assert_eq!(
+        host_ns_before, host_ns_after,
+        "nsenter must restore the original namespace afterward"
+    );
 
     teardown_netns(run_dir, "test2").unwrap();
 }

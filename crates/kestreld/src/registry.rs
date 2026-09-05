@@ -101,7 +101,11 @@ pub fn layers_path(data_dir: &std::path::Path, id: &str) -> PathBuf {
 /// Writes `layers.json`, creating `<data_dir>/containers/<id>/` if it
 /// doesn't already exist — same shape as `write_meta` (which this always
 /// runs alongside, in `bundle.rs::materialize_bundle_inner`).
-pub async fn write_layers(data_dir: &std::path::Path, id: &str, layers: &LayersMeta) -> anyhow::Result<()> {
+pub async fn write_layers(
+    data_dir: &std::path::Path,
+    id: &str,
+    layers: &LayersMeta,
+) -> anyhow::Result<()> {
     let path = layers_path(data_dir, id);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -155,7 +159,11 @@ pub async fn read_meta(data_dir: &std::path::Path, id: &str) -> ContainerMeta {
 /// attachment (`network::attach`) has genuinely completed, to persist the
 /// real `NetworkInfo` — the write half of Task 17's "survives a kestreld
 /// restart" requirement.
-pub async fn write_meta(data_dir: &std::path::Path, id: &str, meta: &ContainerMeta) -> anyhow::Result<()> {
+pub async fn write_meta(
+    data_dir: &std::path::Path,
+    id: &str,
+    meta: &ContainerMeta,
+) -> anyhow::Result<()> {
     let path = meta_path(data_dir, id);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)

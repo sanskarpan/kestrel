@@ -1,3 +1,4 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
 // crates/kestrel-shim/src/lib.rs
 //
 //! `kestrel-shim` library surface. See

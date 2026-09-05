@@ -131,8 +131,15 @@ mod tests {
             // Exactly ONE read_signal() call — proving it's the drain
             // loop below, not repeated signalfd reads, that reaps every
             // child.
-            let siginfo = sfd.read_signal().expect("read_signal").expect("a SIGCHLD should be pending");
-            assert_eq!(siginfo.ssi_signo as i32, libc::SIGCHLD, "unexpected signal number");
+            let siginfo = sfd
+                .read_signal()
+                .expect("read_signal")
+                .expect("a SIGCHLD should be pending");
+            assert_eq!(
+                siginfo.ssi_signo as i32,
+                libc::SIGCHLD,
+                "unexpected signal number"
+            );
 
             let reaped = drain_dead_children().expect("drain_dead_children");
             assert_eq!(

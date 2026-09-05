@@ -118,17 +118,27 @@ const PONG: &[u8; 4] = b"PONG";
 /// bounded wait rather than an unbounded blocking `accept()` -- so a bug
 /// that prevents the client from ever connecting fails this test with a
 /// clear timeout instead of hanging the test suite forever.
-fn accept_with_timeout(listener: &TcpListener, timeout: Duration) -> Result<(TcpStream, SocketAddr)> {
-    listener.set_nonblocking(true).context("setting listener nonblocking")?;
+fn accept_with_timeout(
+    listener: &TcpListener,
+    timeout: Duration,
+) -> Result<(TcpStream, SocketAddr)> {
+    listener
+        .set_nonblocking(true)
+        .context("setting listener nonblocking")?;
     let deadline = Instant::now() + timeout;
     loop {
         match listener.accept() {
             Ok((stream, peer)) => {
-                stream.set_nonblocking(false).context("restoring blocking mode on accepted stream")?;
+                stream
+                    .set_nonblocking(false)
+                    .context("restoring blocking mode on accepted stream")?;
                 return Ok((stream, peer));
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                ensure!(Instant::now() < deadline, "timed out waiting for a connection");
+                ensure!(
+                    Instant::now() < deadline,
+                    "timed out waiting for a connection"
+                );
                 thread::sleep(Duration::from_millis(20));
             }
             Err(e) => return Err(e).context("accepting connection"),
@@ -155,10 +165,15 @@ fn accept_with_timeout(listener: &TcpListener, timeout: Duration) -> Result<(Tcp
 /// hand-off at all -- that machinery exists specifically to reconcile
 /// `nsenter` with tokio's worker pool, which is irrelevant to a thread
 /// that isn't part of one.
-fn spawn_ping_pong_listener(pin: PathBuf, bind_addr: SocketAddr, ready_tx: mpsc::Sender<()>) -> thread::JoinHandle<Result<SocketAddr>> {
+fn spawn_ping_pong_listener(
+    pin: PathBuf,
+    bind_addr: SocketAddr,
+    ready_tx: mpsc::Sender<()>,
+) -> thread::JoinHandle<Result<SocketAddr>> {
     thread::spawn(move || {
         nsenter(&pin, move || {
-            let listener = TcpListener::bind(bind_addr).with_context(|| format!("binding {bind_addr}"))?;
+            let listener =
+                TcpListener::bind(bind_addr).with_context(|| format!("binding {bind_addr}"))?;
             let _ = ready_tx.send(());
             let (mut stream, peer) = accept_with_timeout(&listener, Duration::from_secs(10))?;
             let mut buf = [0u8; 4];
@@ -174,7 +189,8 @@ fn spawn_ping_pong_listener(pin: PathBuf, bind_addr: SocketAddr, ready_tx: mpsc:
 /// currently in -- callers wrap this in `nsenter`/`block_in_place` as
 /// needed), sends [`PING`], and asserts the reply is exactly [`PONG`].
 fn connect_and_ping_pong(target: SocketAddr) -> Result<()> {
-    let mut stream = TcpStream::connect(target).with_context(|| format!("connecting to {target}"))?;
+    let mut stream =
+        TcpStream::connect(target).with_context(|| format!("connecting to {target}"))?;
     stream.write_all(PING).context("writing PING")?;
     let mut buf = [0u8; 4];
     stream.read_exact(&mut buf).context("reading PONG")?;
@@ -221,7 +237,10 @@ async fn address_strings(handle: &Handle) -> Vec<String> {
     let mut addrs = handle.address().get().execute();
     let mut out = Vec::new();
     while let Some(msg) = addrs.try_next().await.unwrap() {
-        let ifname = idx_to_name.get(&msg.header.index).cloned().unwrap_or_else(|| format!("if{}", msg.header.index));
+        let ifname = idx_to_name
+            .get(&msg.header.index)
+            .cloned()
+            .unwrap_or_else(|| format!("if{}", msg.header.index));
         for attr in &msg.attributes {
             if let AddressAttribute::Address(ip) = attr {
                 out.push(format!("{ifname}/{ip}/{}", msg.header.prefix_len));
@@ -262,9 +281,19 @@ async fn address_strings(handle: &Handle) -> Vec<String> {
 /// equality) instead of an incidental, unrelated thing (rule-enumeration
 /// order).
 fn iptables_snapshot(table: &str) -> Vec<String> {
-    let output = std::process::Command::new("iptables").args(["-t", table, "-S"]).output().expect("running iptables -S");
-    assert!(output.status.success(), "iptables -t {table} -S failed: {}", String::from_utf8_lossy(&output.stderr));
-    let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout).lines().map(|s| s.to_string()).collect();
+    let output = std::process::Command::new("iptables")
+        .args(["-t", table, "-S"])
+        .output()
+        .expect("running iptables -S");
+    assert!(
+        output.status.success(),
+        "iptables -t {table} -S failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
     lines.sort();
     lines
 }
@@ -293,13 +322,24 @@ async fn test_none_mode_only_lo() {
         let names = tokio::task::block_in_place(|| {
             let pin = pin.clone();
             nsenter(&pin, move || {
-                let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().context("building in-netns runtime")?;
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("building in-netns runtime")?;
                 rt.block_on(async {
-                    let (connection, handle, _) = rtnetlink::new_connection().context("opening netlink socket inside netns")?;
+                    let (connection, handle, _) = rtnetlink::new_connection()
+                        .context("opening netlink socket inside netns")?;
                     tokio::spawn(connection);
 
-                    let lo_idx = find_link_index(&handle, "lo").await?.context("lo must exist in a fresh netns")?;
-                    handle.link().set(LinkUnspec::new_with_index(lo_idx).up().build()).execute().await.context("bringing up lo")?;
+                    let lo_idx = find_link_index(&handle, "lo")
+                        .await?
+                        .context("lo must exist in a fresh netns")?;
+                    handle
+                        .link()
+                        .set(LinkUnspec::new_with_index(lo_idx).up().build())
+                        .execute()
+                        .await
+                        .context("bringing up lo")?;
 
                     Ok::<Vec<String>, anyhow::Error>(link_names(&handle).await)
                 })
@@ -307,7 +347,11 @@ async fn test_none_mode_only_lo() {
         })
         .expect("in-netns verification must succeed");
 
-        assert_eq!(names, vec!["lo".to_string()], "a None-mode netns must contain exactly one interface (lo) and nothing else");
+        assert_eq!(
+            names,
+            vec!["lo".to_string()],
+            "a None-mode netns must contain exactly one interface (lo) and nothing else"
+        );
 
         teardown_netns(run_dir, id).unwrap();
     })
@@ -469,14 +513,20 @@ async fn test_inter_container() {
         let id_a = "interA01";
         let id_b = "interB01";
 
-        let bridge_idx = ensure_bridge(&handle, bridge_name, gateway, subnet).await.unwrap();
+        let bridge_idx = ensure_bridge(&handle, bridge_name, gateway, subnet)
+            .await
+            .unwrap();
 
         let tmp = tempfile::tempdir().unwrap();
         let run_dir = tmp.path();
         let pin_a = create_netns(run_dir, id_a).await.unwrap();
         let pin_b = create_netns(run_dir, id_b).await.unwrap();
-        attach_veth(&handle, id_a, &pin_a, bridge_idx, ip_a, subnet, gateway).await.unwrap();
-        attach_veth(&handle, id_b, &pin_b, bridge_idx, ip_b, subnet, gateway).await.unwrap();
+        attach_veth(&handle, id_a, &pin_a, bridge_idx, ip_a, subnet, gateway)
+            .await
+            .unwrap();
+        attach_veth(&handle, id_b, &pin_b, bridge_idx, ip_b, subnet, gateway)
+            .await
+            .unwrap();
 
         // No NAT/masquerade/forwarding sysctls anywhere in this scenario
         // -- deliberately. Same-bridge container-to-container traffic is
@@ -487,21 +537,37 @@ async fn test_inter_container() {
         let listen_addr = SocketAddr::new(ip_b.into(), 9200);
         let (ready_tx, ready_rx) = mpsc::channel();
         let server = spawn_ping_pong_listener(pin_b.clone(), listen_addr, ready_tx);
-        ready_rx.recv_timeout(Duration::from_secs(5)).expect("listener in container B must become ready");
+        ready_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("listener in container B must become ready");
 
         let pin_a_for_client = pin_a.clone();
-        tokio::task::block_in_place(move || nsenter(&pin_a_for_client, move || connect_and_ping_pong(listen_addr)))
-            .expect("container A must be able to connect directly to container B's bridge-assigned IP");
+        tokio::task::block_in_place(move || {
+            nsenter(&pin_a_for_client, move || {
+                connect_and_ping_pong(listen_addr)
+            })
+        })
+        .expect("container A must be able to connect directly to container B's bridge-assigned IP");
 
-        let observed_peer = server.join().expect("server thread panicked").expect("server-side exchange must succeed");
+        let observed_peer = server
+            .join()
+            .expect("server thread panicked")
+            .expect("server-side exchange must succeed");
         // Direct L2 bridging: no NAT anywhere on this path, so B must see
         // A's REAL address as the peer, unmodified.
-        assert_eq!(observed_peer.ip(), std::net::IpAddr::V4(ip_a), "container B must observe container A's real bridge-assigned IP, unmodified by any NAT");
+        assert_eq!(
+            observed_peer.ip(),
+            std::net::IpAddr::V4(ip_a),
+            "container B must observe container A's real bridge-assigned IP, unmodified by any NAT"
+        );
 
         teardown_netns(run_dir, id_a).unwrap();
         teardown_netns(run_dir, id_b).unwrap();
         for id in [id_a, id_b] {
-            if let Some(idx) = find_link_index(&handle, &format!("veth{}", &id[..id.len().min(8)])).await.unwrap() {
+            if let Some(idx) = find_link_index(&handle, &format!("veth{}", &id[..id.len().min(8)]))
+                .await
+                .unwrap()
+            {
                 handle.link().del(idx).execute().await.unwrap();
             }
         }
@@ -623,9 +689,13 @@ async fn test_teardown_leaves_no_rules() {
 
         // Full bridge-mode lifecycle, composing every module from Tasks
         // 2-9 in the same shape a real container create would.
-        let bridge_idx = ensure_bridge(&handle, bridge_name, gateway, subnet).await.unwrap();
+        let bridge_idx = ensure_bridge(&handle, bridge_name, gateway, subnet)
+            .await
+            .unwrap();
         let pin = create_netns(run_dir, id).await.unwrap();
-        attach_veth(&handle, id, &pin, bridge_idx, container_ip, subnet, gateway).await.unwrap();
+        attach_veth(&handle, id, &pin, bridge_idx, container_ip, subnet, gateway)
+            .await
+            .unwrap();
         enable_forwarding_sysctls().unwrap();
         ensure_masquerade(subnet, bridge_name).unwrap();
         add_dnat(host_port, container_ip, container_port).unwrap();
@@ -633,7 +703,16 @@ async fn test_teardown_leaves_no_rules() {
         // Full teardown: per-container (veth + DNAT rules for this
         // container's published ports + IPAM release + netns), then the
         // shared bridge itself, then the daemon-level NAT chain teardown.
-        teardown_bridge_network(&handle, run_dir, id, &mut ipam, container_ip, &[(host_port, container_port)]).await.unwrap();
+        teardown_bridge_network(
+            &handle,
+            run_dir,
+            id,
+            &mut ipam,
+            container_ip,
+            &[(host_port, container_port)],
+        )
+        .await
+        .unwrap();
         delete_bridge(&handle, bridge_name).await.unwrap();
         teardown_all(bridge_name).unwrap();
 
@@ -646,10 +725,22 @@ async fn test_teardown_leaves_no_rules() {
         let nat_after = iptables_snapshot("nat");
         let filter_after = iptables_snapshot("filter");
 
-        assert_eq!(links_before, links_after, "no leftover interfaces after a full bridge-mode lifecycle + teardown");
-        assert_eq!(addrs_before, addrs_after, "no leftover addresses after a full bridge-mode lifecycle + teardown");
-        assert_eq!(nat_before, nat_after, "no leftover nat-table rules/chains after a full bridge-mode lifecycle + teardown");
-        assert_eq!(filter_before, filter_after, "no leftover filter-table rules/chains after a full bridge-mode lifecycle + teardown");
+        assert_eq!(
+            links_before, links_after,
+            "no leftover interfaces after a full bridge-mode lifecycle + teardown"
+        );
+        assert_eq!(
+            addrs_before, addrs_after,
+            "no leftover addresses after a full bridge-mode lifecycle + teardown"
+        );
+        assert_eq!(
+            nat_before, nat_after,
+            "no leftover nat-table rules/chains after a full bridge-mode lifecycle + teardown"
+        );
+        assert_eq!(
+            filter_before, filter_after,
+            "no leftover filter-table rules/chains after a full bridge-mode lifecycle + teardown"
+        );
     })
     .await;
 }

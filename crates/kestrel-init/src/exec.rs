@@ -84,7 +84,9 @@ pub fn connect_notify_sink(path: &Path) -> Result<OwnedFd> {
                 std::thread::sleep(NOTIFY_SINK_CONNECT_POLL_INTERVAL);
             }
             Err(e) => {
-                return Err(e).with_context(|| format!("connecting to seccomp-notify sink at {}", path.display()));
+                return Err(e).with_context(|| {
+                    format!("connecting to seccomp-notify sink at {}", path.display())
+                });
             }
         }
     }
@@ -97,7 +99,10 @@ pub fn connect_notify_sink(path: &Path) -> Result<OwnedFd> {
 /// isn't ready yet" states worth retrying through; any other error is a
 /// genuine, non-transient failure.
 fn is_retryable_connect_error(e: &std::io::Error) -> bool {
-    matches!(e.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound)
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+    )
 }
 
 /// Applies the full Phase 5 security pipeline to the CURRENT process, then
@@ -115,7 +120,11 @@ fn is_retryable_connect_error(e: &std::io::Error) -> bool {
 /// `apply_all` below returns `Some(fd)` (the notify fd) alongside a
 /// `Some(conn)`, this function hands the fd over `conn` via `SCM_RIGHTS`
 /// before execve — see [`send_fd_over_connection`].
-pub fn exec_into(process: &Process, seccomp: Option<&LinuxSeccomp>, notify_conn: Option<BorrowedFd>) -> Result<Infallible> {
+pub fn exec_into(
+    process: &Process,
+    seccomp: Option<&LinuxSeccomp>,
+    notify_conn: Option<BorrowedFd>,
+) -> Result<Infallible> {
     // `main.rs` blocks nearly every signal (`SigSet::all()` minus the
     // synchronous-fault signals) on kestrel-init's own main thread, BEFORE
     // forking this process, so its signalfd-based reap loop never misses a
@@ -143,7 +152,9 @@ pub fn exec_into(process: &Process, seccomp: Option<&LinuxSeccomp>, notify_conn:
     // starting point any exec'd program expects.
     nix::sys::signal::SigSet::empty()
         .thread_set_mask()
-        .context("resetting the entrypoint's inherited (kestrel-init-blocked) signal mask before execve")?;
+        .context(
+            "resetting the entrypoint's inherited (kestrel-init-blocked) signal mask before execve",
+        )?;
 
     std::env::set_current_dir(process.cwd())
         .with_context(|| format!("chdir to {}", process.cwd().display()))?;
@@ -193,8 +204,7 @@ pub fn exec_into(process: &Process, seccomp: Option<&LinuxSeccomp>, notify_conn:
     // `.with_context()` propagating straight through to this function's
     // own `Result<Infallible>` return type is correct as-is, with no
     // `expect_err` unwrapping dance needed.
-    execve(&program, &argv, &envp)
-        .with_context(|| format!("execve({:?}, {:?})", program, argv))
+    execve(&program, &argv, &envp).with_context(|| format!("execve({:?}, {:?})", program, argv))
 }
 
 /// Hands `fd` over `conn` (an already-connected `SOCK_STREAM` socket to
@@ -258,12 +268,15 @@ mod connect_notify_sink_tests {
         // kestrel-shim has bound `seccomp.sock` yet).
         let bind_thread = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(200));
-            let listener = std::os::unix::net::UnixListener::bind(&sock_path_for_thread).expect("bind");
+            let listener =
+                std::os::unix::net::UnixListener::bind(&sock_path_for_thread).expect("bind");
             listener.accept().expect("accept")
         });
 
         let start = std::time::Instant::now();
-        let conn = connect_notify_sink(&sock_path).expect("connect_notify_sink should retry through the late bind and eventually succeed");
+        let conn = connect_notify_sink(&sock_path).expect(
+            "connect_notify_sink should retry through the late bind and eventually succeed",
+        );
         let elapsed = start.elapsed();
 
         bind_thread.join().expect("bind thread panicked");
@@ -348,8 +361,13 @@ mod notify_fd_scm_rights_tests {
         let mut received_file = unsafe { std::fs::File::from_raw_fd(received_fd) };
         use std::io::Read;
         let mut buf = Vec::new();
-        received_file.read_to_end(&mut buf).expect("read via received fd");
-        assert_eq!(buf, b"hello-scm-rights", "the received fd must be a genuinely working duplicate of the original");
+        received_file
+            .read_to_end(&mut buf)
+            .expect("read via received fd");
+        assert_eq!(
+            buf, b"hello-scm-rights",
+            "the received fd must be a genuinely working duplicate of the original"
+        );
     }
 
     /// Minimal `recvmsg`-based receiver, mirroring `kestrel-shim`'s own
@@ -358,7 +376,9 @@ mod notify_fd_scm_rights_tests {
     /// pattern) — duplicated here rather than imported since `kestrel-shim`
     /// is a separate crate this one doesn't (and shouldn't) depend on; this
     /// is purely a same-shape sanity check of the sender half.
-    fn recv_fd_via_scm_rights(stream: std::os::unix::net::UnixStream) -> Result<std::os::fd::RawFd> {
+    fn recv_fd_via_scm_rights(
+        stream: std::os::unix::net::UnixStream,
+    ) -> Result<std::os::fd::RawFd> {
         use nix::cmsg_space;
         use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
         use std::io::IoSliceMut;

@@ -39,11 +39,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use kestrel_ns::types::NsType;
 use kestrel_oci::default_spec::default_spec;
 use kestrel_oci::raw::RawSpec;
-use kestrel_oci::runtime::{LinuxBuilder, LinuxIdMappingBuilder, LinuxNamespace, LinuxNamespaceBuilder, LinuxNamespaceType};
+use kestrel_oci::runtime::{
+    LinuxBuilder, LinuxIdMappingBuilder, LinuxNamespace, LinuxNamespaceBuilder, LinuxNamespaceType,
+};
 use kestrel_oci::state::{State, Status};
-use kestrel_ns::types::NsType;
 use kestrel_runtime::bundle::Bundle;
 
 struct MountGuard(PathBuf);
@@ -187,7 +189,8 @@ fn test_create_then_delete_cleans_up_cgroup_pins_and_state_dir() {
         install_stub_kestrel_init();
 
         let bundle_dir = tempfile::tempdir().expect("bundle tempdir");
-        let bundle = bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
+        let bundle =
+            bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
 
         let id = format!("delete-e2e-{}", nix::unistd::getpid().as_raw());
         let (run_dir, data_dir, mount_guard) = setup_dirs(&id);
@@ -205,7 +208,9 @@ fn test_create_then_delete_cleans_up_cgroup_pins_and_state_dir() {
         let created_state = State::read(&state_json_path).expect("read state.json after create");
         assert_eq!(created_state.status, Status::Created);
         let container_pid = nix::unistd::Pid::from_raw(
-            created_state.pid.expect("state.json must carry a pid after create()"),
+            created_state
+                .pid
+                .expect("state.json must carry a pid after create()"),
         );
         // Guard the blocked-forever stub process — belt and suspenders in
         // case an assertion below panics before the explicit kill+reap
@@ -310,20 +315,27 @@ fn test_create_then_delete_force_kills_live_created_container() {
         install_stub_kestrel_init();
 
         let bundle_dir = tempfile::tempdir().expect("bundle tempdir");
-        let bundle = bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
+        let bundle =
+            bundle_with_namespaces(bundle_dir.path(), namespaces_without_mount_plus_user());
 
         let id = format!("delete-force-live-{}", nix::unistd::getpid().as_raw());
         let (run_dir, data_dir, mount_guard) = setup_dirs(&id);
 
         // ---- create() a real container ----
         let result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), data_dir.path());
-        assert!(result.is_ok(), "create() should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "create() should succeed: {:?}",
+            result.err()
+        );
 
         let state_json_path = run_dir.path().join(&id).join("state.json");
         let created_state = State::read(&state_json_path).expect("read state.json after create");
         assert_eq!(created_state.status, Status::Created);
         let container_pid = nix::unistd::Pid::from_raw(
-            created_state.pid.expect("state.json must carry a pid after create()"),
+            created_state
+                .pid
+                .expect("state.json must carry a pid after create()"),
         );
         // Belt-and-suspenders: if an assertion below panics before
         // delete(force=true) actually kills it, this still reaps it.

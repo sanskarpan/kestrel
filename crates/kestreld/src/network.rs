@@ -70,7 +70,9 @@ pub(crate) fn ipam_state_path(data_dir: &Path) -> PathBuf {
     data_dir.join("network").join("ipam.json")
 }
 
-fn parse_subnet_gateway(cfg: &kestreld::config::NetworkConfig) -> anyhow::Result<(Ipv4Network, Ipv4Addr)> {
+fn parse_subnet_gateway(
+    cfg: &kestreld::config::NetworkConfig,
+) -> anyhow::Result<(Ipv4Network, Ipv4Addr)> {
     let subnet: Ipv4Network = cfg
         .subnet
         .parse()
@@ -93,7 +95,8 @@ fn parse_subnet_gateway(cfg: &kestreld::config::NetworkConfig) -> anyhow::Result
 /// infrequently used. A single extra netlink socket per create/delete is
 /// negligible.
 async fn open_netlink() -> anyhow::Result<Handle> {
-    let (connection, handle, _) = rtnetlink::new_connection().context("opening rtnetlink connection")?;
+    let (connection, handle, _) =
+        rtnetlink::new_connection().context("opening rtnetlink connection")?;
     tokio::spawn(connection);
     Ok(handle)
 }
@@ -238,8 +241,9 @@ async fn attach_inner(
                         );
                     }
                 }
-                return Err(e)
-                    .with_context(|| format!("adding published-port DNAT rule for {host_port}->{container_port}"));
+                return Err(e).with_context(|| {
+                    format!("adding published-port DNAT rule for {host_port}->{container_port}")
+                });
             }
             added_ports.push((*host_port, *container_port));
         }
@@ -283,9 +287,16 @@ pub async fn teardown(
         .context("loading IPAM state")?;
 
     let handle = open_netlink().await?;
-    kestrel_net::bridge::teardown_bridge_network(&handle, run_dir, id, &mut ipam, ip, &network.published_ports)
-        .await
-        .context("tearing down bridge-mode networking")
+    kestrel_net::bridge::teardown_bridge_network(
+        &handle,
+        run_dir,
+        id,
+        &mut ipam,
+        ip,
+        &network.published_ports,
+    )
+    .await
+    .context("tearing down bridge-mode networking")
 }
 
 // ---------------------------------------------------------------------
@@ -370,7 +381,9 @@ exec "{real_iptables}" "$@"
         );
         let path = dir.join("iptables");
         std::fs::write(&path, script).expect("writing fake iptables script");
-        let mut perms = std::fs::metadata(&path).expect("stat fake iptables script").permissions();
+        let mut perms = std::fs::metadata(&path)
+            .expect("stat fake iptables script")
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&path, perms).expect("chmod +x fake iptables script");
     }
@@ -417,9 +430,13 @@ exec "{real_iptables}" "$@"
         let fake_bin_dir = tempfile::tempdir().expect("fake bin tempdir");
         install_poison_iptables(fake_bin_dir.path(), poison_host_port);
 
-        let original_path = std::env::var("PATH").expect("PATH must be set in this test environment");
+        let original_path =
+            std::env::var("PATH").expect("PATH must be set in this test environment");
         let path_guard = PathGuard(original_path.clone());
-        std::env::set_var("PATH", format!("{}:{original_path}", fake_bin_dir.path().display()));
+        std::env::set_var(
+            "PATH",
+            format!("{}:{original_path}", fake_bin_dir.path().display()),
+        );
 
         let result = attach(id, &netns_pin, data_dir.path(), &cfg, &published_ports).await;
 
@@ -462,7 +479,11 @@ exec "{real_iptables}" "$@"
         let _ = kestrel_net::netns::teardown_netns(run_dir.path(), id);
         let (connection, handle, _) = rtnetlink::new_connection().expect("rtnetlink connection");
         tokio::spawn(connection);
-        if let Some(idx) = kestrel_net::bridge::find_link_index(&handle, bridge_name).await.ok().flatten() {
+        if let Some(idx) = kestrel_net::bridge::find_link_index(&handle, bridge_name)
+            .await
+            .ok()
+            .flatten()
+        {
             let _ = handle.link().del(idx).execute().await;
         }
         let _ = kestrel_net::nat::teardown_all(bridge_name);

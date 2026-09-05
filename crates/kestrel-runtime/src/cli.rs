@@ -17,6 +17,9 @@ use nix::sys::signal::Signal;
 
 #[derive(Parser)]
 pub struct Cli {
+    /// Enable verbose tracing (sets RUST_LOG=debug and logs per-phase timing)
+    #[arg(long, global = true)]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Command,
     #[arg(long, default_value = "/run/kestrel")]
@@ -88,8 +91,11 @@ pub fn parse_signal(raw: &str) -> Result<Signal> {
     } else {
         format!("SIG{upper}")
     };
-    name.parse::<Signal>()
-        .map_err(|_| anyhow::anyhow!("invalid signal: {raw:?} (expected a name like KILL/SIGKILL or a number like 9)"))
+    name.parse::<Signal>().map_err(|_| {
+        anyhow::anyhow!(
+            "invalid signal: {raw:?} (expected a name like KILL/SIGKILL or a number like 9)"
+        )
+    })
 }
 
 /// Builds a minimal `Process` for `kestrel exec <id> <command...>` from the

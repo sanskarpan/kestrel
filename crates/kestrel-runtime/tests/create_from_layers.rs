@@ -100,7 +100,8 @@ impl Drop for ProcessGuard {
 /// existing per-file-duplication convention for root-gated test
 /// boilerplate).
 fn static_fixture_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/aarch64-unknown-linux-gnu/debug/lifecycle_fixture")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/aarch64-unknown-linux-gnu/debug/lifecycle_fixture")
 }
 
 /// Installs the REAL, statically-linked `kestrel-init` as a sibling of
@@ -188,7 +189,11 @@ fn cleanup_layer(chain_id: &str) {
 /// `kestrel.lowerChainIds` annotation (comma-joined, bottom-to-top) and
 /// has NO `rootfs/` directory anywhere on disk — `bundle_dir` itself is
 /// created, but nothing is ever written under a `rootfs/` child of it.
-fn build_bundle_from_layer_annotation(bundle_dir: &Path, lower_chain_ids: &[&str], args: Vec<String>) -> Bundle {
+fn build_bundle_from_layer_annotation(
+    bundle_dir: &Path,
+    lower_chain_ids: &[&str],
+    args: Vec<String>,
+) -> Bundle {
     let uid_mapping = LinuxIdMappingBuilder::default()
         .container_id(0u32)
         .host_id(nix::unistd::getuid().as_raw())
@@ -209,7 +214,10 @@ fn build_bundle_from_layer_annotation(bundle_dir: &Path, lower_chain_ids: &[&str
         .expect("build linux section");
 
     let mut annotations = std::collections::HashMap::new();
-    annotations.insert("kestrel.lowerChainIds".to_string(), lower_chain_ids.join(","));
+    annotations.insert(
+        "kestrel.lowerChainIds".to_string(),
+        lower_chain_ids.join(","),
+    );
 
     let spec = SpecBuilder::default()
         .version("1.0.2")
@@ -219,7 +227,12 @@ fn build_bundle_from_layer_annotation(bundle_dir: &Path, lower_chain_ids: &[&str
         // `Bundle` is constructed directly, same as
         // `create_pins_namespaces.rs`/`tests/lifecycle.rs`), so an
         // on-disk-nonexistent `root.path()` is never itself a problem.
-        .root(RootBuilder::default().path("rootfs").build().expect("build root"))
+        .root(
+            RootBuilder::default()
+                .path("rootfs")
+                .build()
+                .expect("build root"),
+        )
         .process(
             ProcessBuilder::default()
                 .args(args)
@@ -367,7 +380,8 @@ fn test_create_from_pre_existing_layer_chain_merges_both_layers() {
         );
 
         // ---- the real call under test ----
-        let create_result = kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
+        let create_result =
+            kestrel_runtime::create::create(&id, &bundle, run_dir.path(), &data_dir());
         assert!(
             create_result.is_ok(),
             "create() should succeed via the annotation fast path (no rootfs/ dir needed): {:?}",
@@ -381,7 +395,11 @@ fn test_create_from_pre_existing_layer_chain_merges_both_layers() {
         let state_path = state_json_path(run_dir.path(), &id);
         let created = State::read(&state_path).expect("read state.json after create()");
         assert_eq!(created.status, Status::Created);
-        let init_pid = Pid::from_raw(created.pid.expect("state.json must carry a pid after create()"));
+        let init_pid = Pid::from_raw(
+            created
+                .pid
+                .expect("state.json must carry a pid after create()"),
+        );
         let _process_guard = ProcessGuard(init_pid);
 
         let out_host_path = upper_path(&id, "/out");
@@ -392,7 +410,11 @@ fn test_create_from_pre_existing_layer_chain_merges_both_layers() {
         );
 
         let start_result = kestrel_runtime::start::start(&id, run_dir.path());
-        assert!(start_result.is_ok(), "start() failed: {:?}", start_result.err());
+        assert!(
+            start_result.is_ok(),
+            "start() failed: {:?}",
+            start_result.err()
+        );
 
         // ---- THE assertion this test exists for: /fixture (layer A) ran
         // and successfully read /rootB-marker (layer B) from the SAME
@@ -417,11 +439,20 @@ fn test_create_from_pre_existing_layer_chain_merges_both_layers() {
 
         let stopped = poll_status(&state_path, Status::Stopped, Duration::from_secs(20))
             .expect("container never reached Status::Stopped");
-        assert_eq!(stopped.exit_code, Some(0), "unexpected exit_code: {stopped:?}");
+        assert_eq!(
+            stopped.exit_code,
+            Some(0),
+            "unexpected exit_code: {stopped:?}"
+        );
         let _ = nix::sys::wait::waitpid(init_pid, None);
 
-        let delete_result = kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
-        assert!(delete_result.is_ok(), "delete() failed: {:?}", delete_result.err());
+        let delete_result =
+            kestrel_runtime::delete::delete(&id, run_dir.path(), &data_dir(), false);
+        assert!(
+            delete_result.is_ok(),
+            "delete() failed: {:?}",
+            delete_result.err()
+        );
 
         cleanup_layer(&layer_fixture);
         cleanup_layer(&layer_marker);

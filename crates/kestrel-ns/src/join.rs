@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -35,9 +35,21 @@ pub const JOIN_ORDER: &[NsType] = &[
 pub fn join_namespaces(pins: &BTreeMap<NsType, PathBuf>) -> Result<()> {
     for ns in JOIN_ORDER {
         let Some(path) = pins.get(ns) else { continue };
-        let f = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
-        nix::sched::setns(&f, ns.clone_flag())
-            .with_context(|| format!("setns into {ns:?} via {}", path.display()))?;
+        let f = fs::File::open(path).with_context(|| {
+            format!(
+                "syscall open(path={}) for setns(ns={ns:?}): failed; hint: pin file must exist at {} and be readable (was container created and not yet deleted?)",
+                path.display(),
+                path.display()
+            )
+        })?;
+        nix::sched::setns(&f, ns.clone_flag()).with_context(|| {
+            format!(
+                "syscall setns(fd={}, nstype={ns:?} clone_flag={:#x}) via {}: failed; hint: joining user ns drops caps needed for other ns — ensure JOIN_ORDER (user last) and that target ns still exists",
+                f.as_fd().as_raw_fd(),
+                ns.clone_flag().bits(),
+                path.display()
+            )
+        })?;
     }
     Ok(())
 }
@@ -69,13 +81,18 @@ pub fn with_namespace<T>(ns: NsType, fd: BorrowedFd, f: impl FnOnce() -> Result<
     let self_path = Path::new("/proc/thread-self/ns").join(ns.proc_name());
     let original = std::fs::File::open(&self_path).with_context(|| {
         format!(
-            "opening {} to remember the current namespace",
+            "syscall open(path={}) for with_namespace(ns={ns:?}): failed to save current ns; hint: /proc/thread-self/ns/<type> must exist (kernel >= 3.8, /proc mounted)",
             self_path.display()
         )
     })?;
 
-    nix::sched::setns(fd, ns.clone_flag())
-        .with_context(|| format!("setns into the target {ns:?} namespace"))?;
+    nix::sched::setns(fd, ns.clone_flag()).with_context(|| {
+        format!(
+            "syscall setns(fd={}, nstype={ns:?} clone_flag={:#x}): failed to enter target ns; hint: fd must reference a valid nsfs entry and caller needs CAP_SYS_ADMIN",
+            fd.as_raw_fd(),
+            ns.clone_flag().bits()
+        )
+    })?;
 
     // Guard ensures the restore happens even if `f` panics — `setns`ing
     // back to `original` on Drop, best-effort (a failure here is logged

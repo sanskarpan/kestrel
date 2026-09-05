@@ -4,8 +4,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use kestrel_init::exec::exec_into;
 use kestrel_oci::runtime::{
-    Arch, LinuxSeccompAction, LinuxSeccompBuilder, LinuxSyscallBuilder, ProcessBuilder,
-    UserBuilder,
+    Arch, LinuxSeccompAction, LinuxSeccompBuilder, LinuxSyscallBuilder, ProcessBuilder, UserBuilder,
 };
 
 // No generic `fixture_path(name)` helper — `CARGO_BIN_EXE_<name>` must be a
@@ -60,7 +59,11 @@ fn test_no_new_privs_blocks_setuid_elevation() {
     std::fs::set_permissions(&target, perms).expect("chmod u+s");
 
     kestrel_ns::test_util::run_isolated(move || {
-        let user = UserBuilder::default().uid(1000u32).gid(1000u32).build().unwrap();
+        let user = UserBuilder::default()
+            .uid(1000u32)
+            .gid(1000u32)
+            .build()
+            .unwrap();
         let mut process = ProcessBuilder::default()
             .user(user)
             .args(vec![target.to_string_lossy().into_owned()])

@@ -78,10 +78,7 @@ impl CgroupManager {
     /// (`io.max`/`io.weight`) — this is the read side, previously missing.
     pub fn io_stat(&self) -> Result<Vec<IoDeviceStat>> {
         let contents = std::fs::read_to_string(self.path.join("io.stat")).with_context(|| {
-            format!(
-                "reading io.stat at {}",
-                self.path.join("io.stat").display()
-            )
+            format!("reading io.stat at {}", self.path.join("io.stat").display())
         })?;
         Ok(parse_io_stat(&contents))
     }

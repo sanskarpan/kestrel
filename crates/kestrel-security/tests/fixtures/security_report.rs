@@ -15,15 +15,22 @@ fn main() {
     println!("euid={}", nix::unistd::geteuid());
     println!(
         "has_sys_admin={}",
-        caps::has_cap(None, caps::CapSet::Effective, caps::Capability::CAP_SYS_ADMIN).unwrap_or(false)
+        caps::has_cap(
+            None,
+            caps::CapSet::Effective,
+            caps::Capability::CAP_SYS_ADMIN
+        )
+        .unwrap_or(false)
     );
-    let (soft, _hard) = nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE).unwrap();
+    let (soft, _hard) =
+        nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_NOFILE).unwrap();
     println!("nofile_soft={soft}");
     // Same syscall the rest of this phase standardized on (Task 8/9's
     // seccomp tests, kestrel-init's fixture-denied-syscall) — personality()
     // is harmless to call, takes one plain integer argument, and has no
     // legitimate reason to be denied outside a test, which is exactly why
     // it's a safe, unambiguous probe for "is a seccomp filter active".
+    // SAFETY: safe with documented preconditions; see surrounding context.
     let ret = unsafe { libc::personality(0xffffffff) };
     println!(
         "denied_syscall_blocked={}",

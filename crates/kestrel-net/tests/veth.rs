@@ -20,8 +20,16 @@ fn test_deterministic_mac_is_locally_administered_and_stable() {
     let mac1 = deterministic_mac(ip);
     let mac2 = deterministic_mac(ip);
     assert_eq!(mac1, mac2, "must be deterministic across calls");
-    assert_eq!(mac1[0] & 0x02, 0x02, "must have the locally-administered bit set");
-    assert_eq!(mac1[0] & 0x01, 0x00, "must NOT have the multicast bit set (a real unicast MAC)");
+    assert_eq!(
+        mac1[0] & 0x02,
+        0x02,
+        "must have the locally-administered bit set"
+    );
+    assert_eq!(
+        mac1[0] & 0x01,
+        0x00,
+        "must NOT have the multicast bit set (a real unicast MAC)"
+    );
 }
 
 #[tokio::test]
@@ -181,8 +189,20 @@ async fn test_attach_veth_cleans_up_veth_pair_on_partial_failure() {
         let run_dir = tmp.path();
         let pin = create_netns(run_dir, id).await.unwrap();
 
-        let result = attach_veth(&handle, id, &pin, bogus_bridge_idx, container_ip, subnet, gateway).await;
-        assert!(result.is_err(), "attach_veth must fail against a bogus bridge index");
+        let result = attach_veth(
+            &handle,
+            id,
+            &pin,
+            bogus_bridge_idx,
+            container_ip,
+            subnet,
+            gateway,
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "attach_veth must fail against a bogus bridge index"
+        );
 
         // Host-side: the veth must be gone, not half-created.
         let host_if = format!("veth{}", &id[..id.len().min(8)]);
@@ -212,7 +232,10 @@ async fn test_attach_veth_cleans_up_veth_pair_on_partial_failure() {
             })
         })
         .expect("in-netns verification must succeed");
-        assert!(!leftover_in_netns, "no leftover peer/eth0 must remain inside the container netns after cleanup");
+        assert!(
+            !leftover_in_netns,
+            "no leftover peer/eth0 must remain inside the container netns after cleanup"
+        );
 
         teardown_netns(run_dir, id).unwrap();
     })

@@ -33,7 +33,12 @@ const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(2);
 /// defaults to 53 in production but MUST be overridable for tests (which
 /// can't bind privileged port 53 without root) — take it as a parameter,
 /// not hardcoded.
-pub async fn serve(bind_ip: Ipv4Addr, bind_port: u16, records: NameRecords, upstream: Option<SocketAddr>) -> Result<()> {
+pub async fn serve(
+    bind_ip: Ipv4Addr,
+    bind_port: u16,
+    records: NameRecords,
+    upstream: Option<SocketAddr>,
+) -> Result<()> {
     let socket = UdpSocket::bind((bind_ip, bind_port)).await?;
     let mut buf = [0u8; 512]; // DNS-over-UDP's classic (pre-EDNS0) size cap
 
@@ -45,7 +50,11 @@ pub async fn serve(bind_ip: Ipv4Addr, bind_port: u16, records: NameRecords, upst
     }
 }
 
-async fn handle_query(query: &[u8], records: &NameRecords, upstream: Option<SocketAddr>) -> Option<Vec<u8>> {
+async fn handle_query(
+    query: &[u8],
+    records: &NameRecords,
+    upstream: Option<SocketAddr>,
+) -> Option<Vec<u8>> {
     let parsed = parse_query(query)?;
     let ip = records.read().await.get(&parsed.name).copied();
     match ip {
@@ -97,7 +106,11 @@ fn parse_query(query: &[u8]) -> Option<ParsedQuery> {
     let question_bytes = query[12..question_end].to_vec();
     let name = labels.join(".");
 
-    Some(ParsedQuery { id, name, question_bytes })
+    Some(ParsedQuery {
+        id,
+        name,
+        question_bytes,
+    })
 }
 
 /// Builds a spec-compliant A-record response.
@@ -164,7 +177,10 @@ async fn forward_query(query: &[u8], upstream: SocketAddr) -> Option<Vec<u8>> {
     socket.send_to(query, upstream).await.ok()?;
 
     let mut buf = [0u8; 512];
-    let (len, from) = tokio::time::timeout(UPSTREAM_TIMEOUT, socket.recv_from(&mut buf)).await.ok()?.ok()?;
+    let (len, from) = tokio::time::timeout(UPSTREAM_TIMEOUT, socket.recv_from(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
     if from != upstream {
         // Spoofed/unexpected sender — don't relay it back to the client.
         return None;

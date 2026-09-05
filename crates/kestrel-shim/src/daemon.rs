@@ -79,7 +79,10 @@ pub async fn run(id: String, run_dir: PathBuf, data_dir: PathBuf, io: ContainerI
     // safe; no signal-handler-reentrancy concerns since SIG_IGN has no
     // user-defined handler body to run.
     unsafe {
-        nix::sys::signal::signal(nix::sys::signal::Signal::SIGHUP, nix::sys::signal::SigHandler::SigIgn)
+        nix::sys::signal::signal(
+            nix::sys::signal::Signal::SIGHUP,
+            nix::sys::signal::SigHandler::SigIgn,
+        )
     }
     .context("ignoring SIGHUP")?;
 
@@ -138,7 +141,8 @@ pub async fn run(id: String, run_dir: PathBuf, data_dir: PathBuf, io: ContainerI
     // anything for such a container.
     let seccomp_sock_path = sock_dir.join("seccomp.sock");
     let _ = tokio::fs::remove_file(&seccomp_sock_path).await;
-    let seccomp_listener = UnixListener::bind(&seccomp_sock_path).context("binding seccomp.sock")?;
+    let seccomp_listener =
+        UnixListener::bind(&seccomp_sock_path).context("binding seccomp.sock")?;
 
     // Broadcasts every raw byte chunk read from the container's stdio to
     // every currently-connected attach.sock client (design doc §5's DATA
@@ -162,16 +166,24 @@ pub async fn run(id: String, run_dir: PathBuf, data_dir: PathBuf, io: ContainerI
 
     let result = match daemon_io {
         DaemonIo::Pty(master) => {
-            let master = Arc::new(AsyncFd::new(master).context("registering pty master with reactor")?);
+            let master =
+                Arc::new(AsyncFd::new(master).context("registering pty master with reactor")?);
             tokio::select! {
                 r = read_stream_loop(master.clone(), StreamTag::Stdout, log.clone(), tx.clone()) => r,
                 _ = accept_loop(attach_listener, tx.clone(), seccomp_hub.clone(), Some(master.clone())) => Ok(()),
                 _ = seccomp_accept_loop(seccomp_listener, seccomp_hub.clone()) => Ok(()),
             }
         }
-        DaemonIo::Pipes { stdout_read, stderr_read } => {
-            let stdout_fd = Arc::new(AsyncFd::new(stdout_read).context("registering stdout pipe with reactor")?);
-            let stderr_fd = Arc::new(AsyncFd::new(stderr_read).context("registering stderr pipe with reactor")?);
+        DaemonIo::Pipes {
+            stdout_read,
+            stderr_read,
+        } => {
+            let stdout_fd = Arc::new(
+                AsyncFd::new(stdout_read).context("registering stdout pipe with reactor")?,
+            );
+            let stderr_fd = Arc::new(
+                AsyncFd::new(stderr_read).context("registering stderr pipe with reactor")?,
+            );
             let read_both = async {
                 tokio::try_join!(
                     read_stream_loop(stdout_fd, StreamTag::Stdout, log.clone(), tx.clone()),
@@ -269,8 +281,8 @@ async fn read_stream_loop(
 
     loop {
         match read_from_fd(&fd, &mut buf).await {
-            Ok(0) => break,                                          // pipes: clean EOF
-            Err(e) if e.raw_os_error() == Some(libc::EIO) => break,  // PTY: last slave closed
+            Ok(0) => break,                                         // pipes: clean EOF
+            Err(e) if e.raw_os_error() == Some(libc::EIO) => break, // PTY: last slave closed
             Err(e) => return Err(e).context("reading container stdio"),
             Ok(n) => {
                 let chunk = &buf[..n];
@@ -317,12 +329,14 @@ async fn write_log_line(log: &Mutex<tokio::fs::File>, tag: StreamTag, line: &[u8
 /// established convention (design doc §12) is to add new dependencies only
 /// when genuinely needed; `libc` is already a dependency here.
 fn rfc3339_now() -> String {
+    // SAFETY: safe with documented preconditions; see surrounding context.
     let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
     // SAFETY: `ts` is a valid, appropriately-sized out-param; CLOCK_REALTIME
     // is always available.
     unsafe {
         libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts);
     }
+    // SAFETY: a zeroed `libc::tm` is a valid out-parameter for `gmtime_r`.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: `ts.tv_sec` and `tm` are valid in/out params for gmtime_r.
     unsafe {
@@ -346,7 +360,9 @@ fn rfc3339_now() -> String {
 async fn read_from_fd(fd: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> std::io::Result<usize> {
     loop {
         let mut guard = fd.readable().await?;
-        match guard.try_io(|inner| nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)) {
+        match guard.try_io(|inner| {
+            nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)
+        }) {
             Ok(result) => return result,
             Err(_would_block) => continue,
         }
@@ -359,7 +375,9 @@ async fn write_to_fd(fd: &AsyncFd<OwnedFd>, buf: &[u8]) -> std::io::Result<()> {
     let mut offset = 0;
     while offset < buf.len() {
         let mut guard = fd.writable().await?;
-        match guard.try_io(|inner| nix::unistd::write(inner.get_ref(), &buf[offset..]).map_err(std::io::Error::from)) {
+        match guard.try_io(|inner| {
+            nix::unistd::write(inner.get_ref(), &buf[offset..]).map_err(std::io::Error::from)
+        }) {
             Ok(Ok(n)) => offset += n,
             Ok(Err(e)) => return Err(e),
             Err(_would_block) => continue,
@@ -383,7 +401,13 @@ fn set_winsize(fd: &AsyncFd<OwnedFd>, rows: u16, cols: u16) -> std::io::Result<(
     // SAFETY: `fd` is a valid, open PTY master fd for the lifetime of this
     // call (borrowed, not consumed); `ws` is a valid, fully-initialized
     // `libc::winsize` the kernel only reads from.
-    let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::TIOCSWINSZ, &ws as *const libc::winsize) };
+    let ret = unsafe {
+        libc::ioctl(
+            fd.as_raw_fd(),
+            libc::TIOCSWINSZ,
+            &ws as *const libc::winsize,
+        )
+    };
     if ret != 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -495,7 +519,9 @@ impl SeccompHub {
         let (tx, _rx) = broadcast::channel(BROADCAST_CAPACITY);
         Arc::new(Self {
             tx,
-            recent: std::sync::Mutex::new(std::collections::VecDeque::with_capacity(SECCOMP_REPLAY_CAPACITY)),
+            recent: std::sync::Mutex::new(std::collections::VecDeque::with_capacity(
+                SECCOMP_REPLAY_CAPACITY,
+            )),
         })
     }
 
@@ -515,7 +541,10 @@ impl SeccompHub {
     /// time live, since `tx.send()` already completed before that
     /// subscribe call could even start).
     fn send(&self, bytes: Vec<u8>) {
-        let mut recent = self.recent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut recent = self
+            .recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         recent.push_back(bytes.clone());
         while recent.len() > SECCOMP_REPLAY_CAPACITY {
             recent.pop_front();
@@ -528,7 +557,10 @@ impl SeccompHub {
     /// acquisition as the `tx.subscribe()` call — see `send`'s doc comment
     /// for why that pairing is what makes the ordering race-free.
     fn subscribe(&self) -> (broadcast::Receiver<Vec<u8>>, Vec<Vec<u8>>) {
-        let recent = self.recent.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let recent = self
+            .recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let rx = self.tx.subscribe();
         (rx, recent.iter().cloned().collect())
     }
@@ -578,7 +610,9 @@ async fn handle_seccomp_conn(stream: UnixStream, seccomp_hub: Arc<SeccompHub>) -
                     // that subscribes shortly afterward doesn't miss it.
                     seccomp_hub.send(bytes);
                 }
-                Err(e) => tracing::warn!(error = %e, "failed to serialize seccomp-notify NotifyEvent"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to serialize seccomp-notify NotifyEvent")
+                }
             }
         });
         if let Err(e) = result {
@@ -659,7 +693,10 @@ async fn handle_attach_conn(
         // WS" or "we connected the socket" signal is NOT equivalent to
         // this (both of those can complete before this task, spawned by
         // `accept_loop`, has even been scheduled).
-        if framing::write_frame(&mut write_half, &Frame::Ready).await.is_err() {
+        if framing::write_frame(&mut write_half, &Frame::Ready)
+            .await
+            .is_err()
+        {
             return;
         }
         // Replay whatever `SeccompHub` already had buffered BEFORE this
@@ -673,7 +710,10 @@ async fn handle_attach_conn(
         // wait for `Ready` before triggering the thing it's watching for
         // still can't lose an event to this specific race.
         for bytes in seccomp_replay {
-            if framing::write_frame(&mut write_half, &Frame::SeccompEvent(bytes)).await.is_err() {
+            if framing::write_frame(&mut write_half, &Frame::SeccompEvent(bytes))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -802,7 +842,9 @@ mod seccomp_scm_rights_tests {
         let mut received_file: std::fs::File = received_fd.into();
         use std::io::Read;
         let mut buf = Vec::new();
-        received_file.read_to_end(&mut buf).expect("read via received fd");
+        received_file
+            .read_to_end(&mut buf)
+            .expect("read via received fd");
         assert_eq!(
             buf, b"kestrel-seccomp-notify-fd",
             "the received fd must be a genuinely working duplicate of the original, not just a valid-looking fd number"

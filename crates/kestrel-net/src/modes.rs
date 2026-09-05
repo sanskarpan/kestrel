@@ -10,7 +10,12 @@ use ipnetwork::Ipv4Network;
 
 #[derive(Debug, Clone)]
 pub enum NetworkConfig {
-    Bridge { bridge_name: String, gateway: Ipv4Addr, subnet: Ipv4Network, published: Vec<(u16, u16)> },
+    Bridge {
+        bridge_name: String,
+        gateway: Ipv4Addr,
+        subnet: Ipv4Network,
+        published: Vec<(u16, u16)>,
+    },
     Host,
     None,
     Container(String),
@@ -70,7 +75,11 @@ pub enum ModeKind {
 /// supply — it would silently paper over a caller bug (passing the wrong
 /// `ModeKind`) instead of trusting/using the parameter that exists
 /// specifically to avoid that ambiguity.
-pub fn resolve_container_mode(run_dir: &Path, referenced_id: &str, referenced_mode: ModeKind) -> Result<std::path::PathBuf> {
+pub fn resolve_container_mode(
+    run_dir: &Path,
+    referenced_id: &str,
+    referenced_mode: ModeKind,
+) -> Result<std::path::PathBuf> {
     match referenced_mode {
         ModeKind::Bridge => Ok(run_dir.join("netns").join(referenced_id)),
         ModeKind::None => Ok(run_dir
@@ -126,6 +135,8 @@ mod tests {
     fn test_resolve_container_mode_container_errors() {
         let run_dir = Path::new("/run/kestrel");
         let err = resolve_container_mode(run_dir, "abc123", ModeKind::Container).unwrap_err();
-        assert!(err.to_string().contains("chained container-network references"));
+        assert!(err
+            .to_string()
+            .contains("chained container-network references"));
     }
 }

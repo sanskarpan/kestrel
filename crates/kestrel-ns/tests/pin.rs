@@ -26,6 +26,7 @@ fn test_pin_survives_pid1_exit() {
 
         let result = run_stages(&plan, None, || {
             std::thread::sleep(Duration::from_secs(2));
+            // SAFETY: safe with documented preconditions; see surrounding context.
             unsafe { libc::_exit(0) };
         })
         .expect("run_stages");

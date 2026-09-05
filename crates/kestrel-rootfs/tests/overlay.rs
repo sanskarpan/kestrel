@@ -20,7 +20,9 @@ fn test_overlay_composites_lower_and_upper_and_upper_wins() {
         fs::write(base_diff.join("only-in-base.txt"), b"base").unwrap();
         fs::write(base_diff.join("shadowed.txt"), b"base-version").unwrap();
 
-        let top_diff = store.ensure_layer("sha256:top", Some("sha256:base")).unwrap();
+        let top_diff = store
+            .ensure_layer("sha256:top", Some("sha256:base"))
+            .unwrap();
         fs::write(top_diff.join("shadowed.txt"), b"top-version").unwrap();
 
         let snapshotter = Snapshotter::new(data_dir.clone(), false);
@@ -33,7 +35,10 @@ fn test_overlay_composites_lower_and_upper_and_upper_wins() {
         let base_visible = fs::read_to_string(snap.merged.join("only-in-base.txt")).unwrap();
         assert_eq!(base_visible, "base");
         let shadowed = fs::read_to_string(snap.merged.join("shadowed.txt")).unwrap();
-        assert_eq!(shadowed, "top-version", "top layer must win over base layer");
+        assert_eq!(
+            shadowed, "top-version",
+            "top layer must win over base layer"
+        );
 
         // Write through the merged view; it must land in upperdir, not the
         // lower diff dirs (proving copy-on-write, not shared mutation).
@@ -62,7 +67,8 @@ fn test_mount_overlay_clears_stale_workdir() {
         // Simulate a stale work/ left behind by a crashed container.
         fs::write(snap.work.join("stale-garbage"), b"junk").unwrap();
 
-        mount_overlay(&data_dir, &snap, false, false, false).expect("mount_overlay should clear work/ first");
+        mount_overlay(&data_dir, &snap, false, false, false)
+            .expect("mount_overlay should clear work/ first");
         unmount_overlay(&snap.merged).expect("unmount_overlay");
     });
 }

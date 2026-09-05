@@ -34,8 +34,14 @@ use nix::sched::{unshare, CloneFlags};
 pub fn run_in_fresh_mount_ns(f: impl FnOnce() + std::panic::UnwindSafe) {
     kestrel_ns::test_util::run_isolated(|| {
         unshare(CloneFlags::CLONE_NEWNS).expect("unshare(CLONE_NEWNS)");
-        mount(None::<&str>, "/", None::<&str>, MsFlags::MS_PRIVATE | MsFlags::MS_REC, None::<&str>)
-            .expect("remount / as MS_PRIVATE|MS_REC");
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC,
+            None::<&str>,
+        )
+        .expect("remount / as MS_PRIVATE|MS_REC");
         f();
     });
 }

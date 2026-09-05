@@ -32,7 +32,9 @@ const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
 /// binding the same port, but in practice (single test process, no
 /// other UDP traffic on the VM's loopback) this is reliable.
 async fn free_udp_port() -> u16 {
-    let probe = UdpSocket::bind((LOOPBACK, 0)).await.expect("bind probe socket");
+    let probe = UdpSocket::bind((LOOPBACK, 0))
+        .await
+        .expect("bind probe socket");
     probe.local_addr().expect("local_addr").port()
 }
 
@@ -90,7 +92,9 @@ fn build_query(id: u16, name: &str) -> Vec<u8> {
 }
 
 async fn send_query(server: SocketAddr, query: &[u8]) -> Vec<u8> {
-    let client = UdpSocket::bind((LOOPBACK, 0)).await.expect("bind client socket");
+    let client = UdpSocket::bind((LOOPBACK, 0))
+        .await
+        .expect("bind client socket");
     client.send_to(query, server).await.expect("send query");
     let mut buf = [0u8; 512];
     let (len, from) = tokio::time::timeout(Duration::from_secs(2), client.recv_from(&mut buf))
@@ -117,7 +121,11 @@ async fn test_raw_socket_known_name_resolves_to_correct_ip() {
 
     // Header: ID echoed, flags = response/RA/no-error, QDCOUNT=1, ANCOUNT=1.
     assert_eq!(&response[0..2], &0x1234u16.to_be_bytes(), "ID not echoed");
-    assert_eq!(&response[2..4], &[0x81, 0x80], "flags: expected response/RA/NOERROR");
+    assert_eq!(
+        &response[2..4],
+        &[0x81, 0x80],
+        "flags: expected response/RA/NOERROR"
+    );
     assert_eq!(&response[4..6], &1u16.to_be_bytes(), "QDCOUNT");
     assert_eq!(&response[6..8], &1u16.to_be_bytes(), "ANCOUNT");
     assert_eq!(&response[8..10], &0u16.to_be_bytes(), "NSCOUNT");
@@ -125,17 +133,45 @@ async fn test_raw_socket_known_name_resolves_to_correct_ip() {
 
     // Question section echoed verbatim.
     let qlen = query.len() - 12;
-    assert_eq!(&response[12..12 + qlen], &query[12..], "question section not echoed verbatim");
+    assert_eq!(
+        &response[12..12 + qlen],
+        &query[12..],
+        "question section not echoed verbatim"
+    );
 
     // Answer section: compressed-pointer NAME, TYPE=A, CLASS=IN, TTL,
     // RDLENGTH=4, RDATA=ip.
     let ans = 12 + qlen;
-    assert_eq!(&response[ans..ans + 2], &[0xC0, 0x0C], "answer NAME should be a pointer to offset 12");
-    assert_eq!(&response[ans + 2..ans + 4], &1u16.to_be_bytes(), "answer TYPE should be A");
-    assert_eq!(&response[ans + 4..ans + 6], &1u16.to_be_bytes(), "answer CLASS should be IN");
-    assert_eq!(&response[ans + 10..ans + 12], &4u16.to_be_bytes(), "RDLENGTH should be 4");
-    assert_eq!(&response[ans + 12..ans + 16], &ip.octets(), "RDATA should be the resolved IP");
-    assert_eq!(response.len(), ans + 16, "response has unexpected trailing bytes");
+    assert_eq!(
+        &response[ans..ans + 2],
+        &[0xC0, 0x0C],
+        "answer NAME should be a pointer to offset 12"
+    );
+    assert_eq!(
+        &response[ans + 2..ans + 4],
+        &1u16.to_be_bytes(),
+        "answer TYPE should be A"
+    );
+    assert_eq!(
+        &response[ans + 4..ans + 6],
+        &1u16.to_be_bytes(),
+        "answer CLASS should be IN"
+    );
+    assert_eq!(
+        &response[ans + 10..ans + 12],
+        &4u16.to_be_bytes(),
+        "RDLENGTH should be 4"
+    );
+    assert_eq!(
+        &response[ans + 12..ans + 16],
+        &ip.octets(),
+        "RDATA should be the resolved IP"
+    );
+    assert_eq!(
+        response.len(),
+        ans + 16,
+        "response has unexpected trailing bytes"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -147,12 +183,28 @@ async fn test_raw_socket_unknown_name_gets_nxdomain() {
     let response = send_query(server, &query).await;
 
     assert_eq!(&response[0..2], &0x5678u16.to_be_bytes(), "ID not echoed");
-    assert_eq!(&response[2..4], &[0x81, 0x83], "flags: expected response/RA/NXDOMAIN(3)");
-    assert_eq!(&response[6..8], &0u16.to_be_bytes(), "ANCOUNT should be 0 for NXDOMAIN");
+    assert_eq!(
+        &response[2..4],
+        &[0x81, 0x83],
+        "flags: expected response/RA/NXDOMAIN(3)"
+    );
+    assert_eq!(
+        &response[6..8],
+        &0u16.to_be_bytes(),
+        "ANCOUNT should be 0 for NXDOMAIN"
+    );
 
     let qlen = query.len() - 12;
-    assert_eq!(response.len(), 12 + qlen, "NXDOMAIN response should have no answer section");
-    assert_eq!(&response[12..12 + qlen], &query[12..], "question section not echoed verbatim");
+    assert_eq!(
+        response.len(),
+        12 + qlen,
+        "NXDOMAIN response should have no answer section"
+    );
+    assert_eq!(
+        &response[12..12 + qlen],
+        &query[12..],
+        "question section not echoed verbatim"
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -187,9 +239,19 @@ async fn test_dig_resolves_known_name() {
     .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "dig exited non-zero: {stdout}\nstderr: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("status: NOERROR"), "expected NOERROR status, got:\n{stdout}");
-    assert!(stdout.contains("172.30.0.9"), "expected resolved IP in dig output, got:\n{stdout}");
+    assert!(
+        output.status.success(),
+        "dig exited non-zero: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("status: NOERROR"),
+        "expected NOERROR status, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("172.30.0.9"),
+        "expected resolved IP in dig output, got:\n{stdout}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -217,7 +279,10 @@ async fn test_dig_reports_nxdomain_for_unknown_name() {
     .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("status: NXDOMAIN"), "expected NXDOMAIN status, got:\n{stdout}");
+    assert!(
+        stdout.contains("status: NXDOMAIN"),
+        "expected NXDOMAIN status, got:\n{stdout}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -227,7 +292,14 @@ async fn test_host_binary_resolves_known_name() {
 
     let output = tokio::task::spawn_blocking(move || {
         Command::new("host")
-            .args(["-p", &server.port().to_string(), "-W", "2", "api.kestrel.test", &server.ip().to_string()])
+            .args([
+                "-p",
+                &server.port().to_string(),
+                "-W",
+                "2",
+                "api.kestrel.test",
+                &server.ip().to_string(),
+            ])
             .output()
             .expect("failed to run host")
     })
@@ -235,8 +307,15 @@ async fn test_host_binary_resolves_known_name() {
     .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "host exited non-zero: {stdout}\nstderr: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("172.30.0.11"), "expected resolved IP in host output, got:\n{stdout}");
+    assert!(
+        output.status.success(),
+        "host exited non-zero: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("172.30.0.11"),
+        "expected resolved IP in host output, got:\n{stdout}"
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -259,11 +338,23 @@ async fn test_unknown_name_is_forwarded_to_upstream_and_answered() {
     let query = build_query(0xABCD, "external.example.test");
     let response = send_query(primary_addr, &query).await;
 
-    assert_eq!(&response[0..2], &0xABCDu16.to_be_bytes(), "ID not preserved through forwarding");
-    assert_eq!(&response[2..4], &[0x81, 0x80], "forwarded response should be NOERROR");
+    assert_eq!(
+        &response[0..2],
+        &0xABCDu16.to_be_bytes(),
+        "ID not preserved through forwarding"
+    );
+    assert_eq!(
+        &response[2..4],
+        &[0x81, 0x80],
+        "forwarded response should be NOERROR"
+    );
     assert_eq!(&response[6..8], &1u16.to_be_bytes(), "ANCOUNT should be 1");
     let expected_ip: Ipv4Addr = "203.0.113.42".parse().unwrap();
-    assert_eq!(&response[response.len() - 4..], &expected_ip.octets(), "forwarded RDATA should match upstream's answer");
+    assert_eq!(
+        &response[response.len() - 4..],
+        &expected_ip.octets(),
+        "forwarded RDATA should match upstream's answer"
+    );
 
     // And confirm the same via a real `dig` against the primary.
     let output = tokio::task::spawn_blocking(move || {
@@ -286,8 +377,14 @@ async fn test_unknown_name_is_forwarded_to_upstream_and_answered() {
     .await
     .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("status: NOERROR"), "expected NOERROR from forwarded dig query, got:\n{stdout}");
-    assert!(stdout.contains("203.0.113.42"), "expected upstream-forwarded IP in dig output, got:\n{stdout}");
+    assert!(
+        stdout.contains("status: NOERROR"),
+        "expected NOERROR from forwarded dig query, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("203.0.113.42"),
+        "expected upstream-forwarded IP in dig output, got:\n{stdout}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -301,6 +398,14 @@ async fn test_name_unknown_to_both_primary_and_upstream_gets_nxdomain() {
     let query = build_query(0x9999, "totally.unknown.test");
     let response = send_query(primary_addr, &query).await;
 
-    assert_eq!(&response[0..2], &0x9999u16.to_be_bytes(), "ID not preserved through forwarding");
-    assert_eq!(&response[2..4], &[0x81, 0x83], "expected NXDOMAIN relayed from upstream");
+    assert_eq!(
+        &response[0..2],
+        &0x9999u16.to_be_bytes(),
+        "ID not preserved through forwarding"
+    );
+    assert_eq!(
+        &response[2..4],
+        &[0x81, 0x83],
+        "expected NXDOMAIN relayed from upstream"
+    );
 }
