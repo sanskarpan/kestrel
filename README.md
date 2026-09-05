@@ -1,8 +1,11 @@
 # Kestrel — Container Runtime from Scratch
 
+[![CI](https://github.com/sanskarpan/kestrel/actions/workflows/ci.yml/badge.svg)](https://github.com/sanskarpan/kestrel/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Kestrel** is a from-scratch OCI container runtime, image store, and daemon built in Rust. It implements all 8 Linux namespaces, cgroups v2, OverlayFS, and NAT networking without shelling out — the educational counterpoint to `runc` that shows *why* containers work at the kernel level.
 
-> **Status:** Phases 0–9 implemented (OCI types → daemon). Web dashboard + TUI scaffolded. See `CHECKLIST.md` and `SPEC.md` for the full 328-task roadmap.
+> **Status:** All 328 `CHECKLIST.md` tasks across Phases 0–14 complete and verified (runtime → daemon → CLI/TUI/dashboard + privileged integration suite). See `CHECKLIST.md` and `SPEC.md` for the full roadmap.
 
 ---
 
@@ -93,9 +96,36 @@ make build-kestrel-init-static
 ```bash
 cargo build --workspace
 cargo test --workspace
-sudo -E cargo test --workspace -- --ignored --test-threads=1 --skip test_join_order_matters
-cd web && npm install && npm run build   # or bun install && bun run build
+sudo -E cargo test --workspace -- --ignored --skip test_join_order_matters --test-threads=1
+cd web && npm ci && npm run build
 ```
+
+### 30-second first container (native Linux, as root)
+
+```bash
+sudo ./target/debug/kestreld &                      # :7777 + /run/kestrel.sock
+curl -s -X POST localhost:7777/containers \
+  -H 'content-type: application/json' \
+  -d '{"image":"alpine:latest","cmd":["/bin/echo","hello-from-kestrel"]}' | tee /tmp/c.json
+ID=$(python3 -c "import json;print(json.load(open('/tmp/c.json'))['id'])")
+curl -s -X POST localhost:7777/containers/$ID/start
+curl -s localhost:7777/containers/$ID/logs          # expect: hello-from-kestrel
+```
+
+The full guided version (pull → run → exec → stats → cleanup) lives in
+`docs/USER_GUIDE.md`, with troubleshooting in `docs/FAQ.md`.
+
+### How Kestrel compares
+
+|  | `runc` | `youki` | **kestrel** |
+|---|---|---|---|
+| Language | Go (+ C `nsexec`) | Rust | Rust (runtime is `tokio`-free, single-threaded) |
+| Namespaces / cgroups / OverlayFS | yes | yes | yes (all 8 ns, cgroup v2, OverlayFS) |
+| Image pull + registry | no (needs external tooling) | no | yes (Docker Hub client built in) |
+| Daemon + REST/SSE API | no | no | yes (`kestreld`: metrics, events, introspection) |
+| CLI / TUI / web dashboard | CLI only | CLI only | all three (ratatui + React/D3/xterm.js) |
+| Goal | production standard | production Rust runtime | **education**: every layer from scratch, fully traced |
+| Production use | yes | emerging | **no** — learning/reference implementation (see `docs/SECURITY.md` gaps) |
 
 ### CLI / Daemon
 
@@ -153,3 +183,14 @@ If you must run natively, snapshot first (`limactl stop` or host snapshot) and n
 * `docs/superpowers/specs/*.md` — per-phase design docs
 * `CHECKLIST.md` — 328 tasks across 14 phases
 * `PROMPT.md` — original project prompt
+
+---
+
+## Contributing
+
+PRs welcome — start with `CONTRIBUTING.md` (Lima VM workflow, quality gates).
+Report security issues privately per `SECURITY.md`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
