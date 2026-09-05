@@ -128,7 +128,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires unprivileged userns (Lima VM gate); stock CI runners block CLONE_NEWUSER"]
     fn test_setgroups_deny_required_before_gid_map() {
         // Proves the CVE-2014-8989 constraint empirically, in a real
         // unprivileged user namespace, so the ordering never gets "cleaned
@@ -155,7 +154,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires unprivileged userns (Lima VM gate); stock CI runners block CLONE_NEWUSER"]
     fn test_write_id_maps_end_to_end() {
         run_isolated(|| {
             let uid = getuid();
