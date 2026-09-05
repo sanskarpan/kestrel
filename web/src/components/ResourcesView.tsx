@@ -24,10 +24,20 @@ export function ResourcesView() {
   const cgroupQ = useCgroup(activeId);
   const pressureQ = usePressure(activeId);
   const [psiHistory, setPsiHistory] = useState<PsiPoint[]>([]);
+  const [prevActiveId, setPrevActiveId] = useState(activeId);
+  // Render-phase reset (React's sanctioned derived-state pattern): clear
+  // PSI history when the selected container changes, without an effect.
+  if (prevActiveId !== activeId) {
+    setPrevActiveId(activeId);
+    setPsiHistory([]);
+  }
 
+  // Accumulating a rolling window from the 1 Hz PSI poll stream is
+  // external synchronization, not derivable during render.
   useEffect(() => {
     if (!pressureQ.data) return;
     const now = new Date().toLocaleTimeString();
+    // oxlint-disable-next-line react/set-state-in-effect — see above
     setPsiHistory((prev) => [...prev.slice(-29), {
       t: now,
       cpuSome: pressureQ.data!.cpu.some.avg10,
@@ -37,9 +47,6 @@ export function ResourcesView() {
       memFull: pressureQ.data!.memory.full?.avg10 ?? null,
     }]);
   }, [pressureQ.data]);
-
-  // Reset history when container changes
-  useEffect(() => { setPsiHistory([]); }, [activeId]);
 
   const throttlePct = useMemo(() => {
     if (!cgroupQ.data) return 0;
