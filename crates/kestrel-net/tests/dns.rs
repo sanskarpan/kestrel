@@ -97,7 +97,9 @@ async fn send_query(server: SocketAddr, query: &[u8]) -> Vec<u8> {
         .expect("bind client socket");
     client.send_to(query, server).await.expect("send query");
     let mut buf = [0u8; 512];
-    let (len, from) = tokio::time::timeout(Duration::from_secs(2), client.recv_from(&mut buf))
+    // Generous: this only elapses on failure (a loaded CI box once flaked
+    // at 2s), so it costs nothing on the success path.
+    let (len, from) = tokio::time::timeout(Duration::from_secs(10), client.recv_from(&mut buf))
         .await
         .expect("response timed out")
         .expect("recv_from failed");
