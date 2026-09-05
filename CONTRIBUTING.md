@@ -32,6 +32,6 @@ See `README.md` → "VM Warning" for details.
 - `kestrel-runtime` stays single-threaded and `tokio`-free
   (`scripts/check-no-tokio-in-runtime.sh` enforces it).
 - Error messages name the failing syscall, its arguments, and the likely fix.
-- `docs/superpowers/` is historical agent working material — read-only
+- `archive/superpowers/` is historical agent working material — read-only
   context, not a pattern to extend. Canonical references are `SPEC.md`,
   `CHECKLIST.md`, and the per-phase docs in `docs/`.

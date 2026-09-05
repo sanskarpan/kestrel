@@ -186,7 +186,7 @@ If you must run natively, snapshot first (`limactl stop` or host snapshot) and n
 * `docs/CGROUPS.md` — v2, controllers, PSI
 * `docs/OVERLAY.md` — layer model, whiteouts, copy-up
 * `docs/SECURITY.md` — caps, seccomp, threat model
-* `docs/superpowers/specs/*.md` — per-phase design docs
+* `archive/superpowers/specs/*.md` — per-phase design docs (historical)
 * `CHECKLIST.md` — 328 tasks across 14 phases
 * `PROMPT.md` — original project prompt
 
