@@ -83,6 +83,14 @@ Expected: runners restrict unprivileged userns. CI enables what it can
 (`apparmor_restrict_unprivileged_userns=0`); the full privileged matrix runs
 in the Lima VM gate (`make test-root`).
 
+**Privileged tests fail in Lima with cgroup/namespace errors**
+Stop any running demo daemon first (`stop` + `delete` every container, kill
+`kestreld`, unmount anything you mounted under `/var/lib/kestrel`, remove
+stale `bundles/`/`containers/`/`snapshots/`). The suite assumes a quiescent
+machine: a live daemon's cgroups, mounts, and images collide with the tests'
+assertions (verified: 7 spurious failures with a demo running, 22/22 green
+after cleanup).
+
 ## Still stuck?
 
 Open an issue with: kernel version, cgroup version, Lima-vs-native, commit
