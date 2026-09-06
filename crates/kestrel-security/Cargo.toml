@@ -2,6 +2,7 @@
 name = "kestrel-security"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 # Task 13's capstone lifecycle test needs a real exec'd process to report
 # on its own post-apply_all() security state, which means it needs a real
