@@ -4,3 +4,6 @@ node_modules/
 web/dist/
 .lima/*.log
 .DS_Store
+
+# mdBook build output
+/docs/book
