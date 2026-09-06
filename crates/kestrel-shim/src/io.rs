@@ -16,7 +16,7 @@
 //! gated behind nix's `"term"` feature (`lib.rs`: `feature! { #![feature
 //! = "term"] pub mod pty; }`), which this crate's `Cargo.toml` enables.
 
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
 
 use anyhow::{Context, Result};
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
@@ -122,10 +122,9 @@ impl ContainerIo {
 /// Task 2 doesn't need to (and its own plan text assumes this is already
 /// done by the time it runs).
 fn set_nonblocking(fd: &OwnedFd) -> Result<()> {
-    let raw = fd.as_raw_fd();
-    let current = fcntl(raw, FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
+    let current = fcntl(fd.as_fd(), FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
     let current = OFlag::from_bits_truncate(current);
-    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
+    fcntl(fd.as_fd(), FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
         .context("fcntl F_SETFL O_NONBLOCK")?;
     Ok(())
 }

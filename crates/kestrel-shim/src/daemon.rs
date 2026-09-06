@@ -231,8 +231,14 @@ fn redirect_stdio_to_devnull() -> Result<()> {
         .context("opening /dev/null")?;
     let devnull_fd = devnull.as_raw_fd();
     for target in [0, 1, 2] {
-        nix::unistd::dup2(devnull_fd, target)
+        // SAFETY: 0/1/2 are open inherited stdio at this point;
+        // from_raw_fd's ownership claim is released via forget without
+        // closing, so dup2's occupant stays open and nothing is
+        // double-closed.
+        let mut owned_target = unsafe { OwnedFd::from_raw_fd(target) };
+        nix::unistd::dup2(&devnull, &mut owned_target)
             .with_context(|| format!("dup2 /dev/null onto fd {target}"))?;
+        std::mem::forget(owned_target);
     }
     if devnull_fd > 2 {
         drop(devnull);
@@ -360,9 +366,9 @@ fn rfc3339_now() -> String {
 async fn read_from_fd(fd: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> std::io::Result<usize> {
     loop {
         let mut guard = fd.readable().await?;
-        match guard.try_io(|inner| {
-            nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)
-        }) {
+        match guard
+            .try_io(|inner| nix::unistd::read(inner.get_ref(), buf).map_err(std::io::Error::from))
+        {
             Ok(result) => return result,
             Err(_would_block) => continue,
         }

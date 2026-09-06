@@ -81,9 +81,12 @@ fn main() -> anyhow::Result<()> {
         .file_name()
         .context("bootstrap.state_json_path has no file name")?;
     // Valid both before and after the pivot below — see the comment above.
-    let state_json_path_durable: std::path::PathBuf =
-        std::path::PathBuf::from(format!("/proc/self/fd/{state_dir_fd}"))
-            .join(state_json_file_name);
+    // (nix 0.30's `open` returns `OwnedFd`, so display the raw number.)
+    let state_json_path_durable: std::path::PathBuf = std::path::PathBuf::from(format!(
+        "/proc/self/fd/{}",
+        std::os::fd::AsRawFd::as_raw_fd(&state_dir_fd)
+    ))
+    .join(state_json_file_name);
 
     // Phase 9 Task 16: connect to `kestrel-shim`'s `seccomp.sock` NOW,
     // before `pivot_root` below, for the exact same reason

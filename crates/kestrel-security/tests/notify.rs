@@ -141,7 +141,7 @@ fn test_run_notify_loop_continues_after_one_stale_request() {
             ForkResult::Parent { child: child1 } => {
                 drop(sync_write);
                 let mut buf = [0u8; 1];
-                read(sync_read.as_raw_fd(), &mut buf).expect("sync read from child1");
+                read(&sync_read, &mut buf).expect("sync read from child1");
                 drop(sync_read);
                 // Best-effort grace period for the kernel to have actually
                 // suspended child1 inside the notified syscall — the write

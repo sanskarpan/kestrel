@@ -29,7 +29,7 @@
 //! itself is agnostic to this — it just execs whatever `args.command`
 //! says — but every caller of the shim must get this order right.
 
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -92,21 +92,11 @@ async fn main() -> anyhow::Result<()> {
         std::process::Stdio,
     ) = match &io {
         ContainerIo::Pty { slave, .. } => {
-            // SAFETY: `nix::unistd::dup` returns a freshly-duplicated,
-            // valid, open fd that this process exclusively owns at this
-            // point (nothing else has a handle to it yet). Handing it to
-            // `Stdio::from_raw_fd` transfers that ownership to the
-            // `Stdio`/child-process machinery, which closes it exactly
-            // once (either on drop, if unused, or when `dup2`'d into the
-            // child's fd table and then closed post-fork) — never
-            // double-closed or leaked, matching this project's existing
-            // `create.rs`/`bootstrap.rs`/`start.rs` `from_raw_fd`
-            // precedent.
+            // nix 0.30's `dup` takes `AsFd` and returns `OwnedFd`, so the
+            // old `from_raw_fd` dance (and its SAFETY comments) is gone:
+            // ownership transfers into `Stdio` via `From` with no unsafe.
             let dup = |fd: &OwnedFd| -> std::process::Stdio {
-                let raw = nix::unistd::dup(fd.as_raw_fd()).expect("dup pty slave");
-                // SAFETY: `raw` is a fresh owned descriptor whose ownership
-                // is transferred to the returned `Stdio`.
-                unsafe { std::process::Stdio::from_raw_fd(raw) }
+                nix::unistd::dup(fd).expect("dup pty slave").into()
             };
             (dup(slave), dup(slave), dup(slave))
         }
@@ -117,14 +107,9 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let devnull =
                 std::fs::File::open("/dev/null").context("opening /dev/null for stdin")?;
-            // SAFETY: see the identical `dup`/`from_raw_fd` safety note
-            // in the `ContainerIo::Pty` arm above — same reasoning
-            // applies verbatim to the pipe write ends here.
+            // Same nix-0.30 simplification as the PTY arm above.
             let dup = |fd: &OwnedFd| -> std::process::Stdio {
-                let raw = nix::unistd::dup(fd.as_raw_fd()).expect("dup pipe write end");
-                // SAFETY: `raw` is a fresh owned descriptor whose ownership
-                // is transferred to the returned `Stdio`.
-                unsafe { std::process::Stdio::from_raw_fd(raw) }
+                nix::unistd::dup(fd).expect("dup pipe write end").into()
             };
             (devnull.into(), dup(stdout_write), dup(stderr_write))
         }

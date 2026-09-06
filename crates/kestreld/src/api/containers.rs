@@ -6,7 +6,7 @@
 //! subprocess -> registry entry.
 
 use std::collections::HashSet;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -799,10 +799,9 @@ fn allocate_pty() -> anyhow::Result<(OwnedFd, OwnedFd)> {
 
 fn set_pty_master_nonblocking(fd: &OwnedFd) -> anyhow::Result<()> {
     use nix::fcntl::{fcntl, FcntlArg, OFlag};
-    let raw = fd.as_raw_fd();
-    let current = fcntl(raw, FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
+    let current = fcntl(fd.as_fd(), FcntlArg::F_GETFL).context("fcntl F_GETFL")?;
     let current = OFlag::from_bits_truncate(current);
-    fcntl(raw, FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
+    fcntl(fd.as_fd(), FcntlArg::F_SETFL(current | OFlag::O_NONBLOCK))
         .context("fcntl F_SETFL O_NONBLOCK")?;
     Ok(())
 }
@@ -815,9 +814,9 @@ fn set_pty_master_nonblocking(fd: &OwnedFd) -> anyhow::Result<()> {
 async fn read_from_fd(fd: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> std::io::Result<usize> {
     loop {
         let mut guard = fd.readable().await?;
-        match guard.try_io(|inner| {
-            nix::unistd::read(inner.get_ref().as_raw_fd(), buf).map_err(std::io::Error::from)
-        }) {
+        match guard
+            .try_io(|inner| nix::unistd::read(inner.get_ref(), buf).map_err(std::io::Error::from))
+        {
             Ok(result) => return result,
             Err(_would_block) => continue,
         }
@@ -899,13 +898,10 @@ async fn read_exec_init(socket: &mut WebSocket) -> anyhow::Result<ExecInit> {
 /// technique `kestrel-shim/src/main.rs`'s own `dup` closure uses to wire a
 /// PTY slave into all three of a child's stdio fds.
 ///
-/// SAFETY: `raw` is a valid, open fd this function just obtained from a
-/// successful `dup(2)` call and immediately, exclusively hands off to
-/// `Stdio::from_raw_fd` — nothing else observes or closes `raw` in between,
-/// so `Stdio` becomes its sole owner with no aliasing or double-close risk.
+/// nix 0.30's `dup` returns `OwnedFd`, so ownership transfers into `Stdio`
+/// via `From` with no unsafe (and no SAFETY comment needed).
 fn dup_as_stdio(fd: &OwnedFd) -> anyhow::Result<Stdio> {
-    let raw = nix::unistd::dup(fd.as_raw_fd()).context("dup pty slave")?;
-    Ok(unsafe { Stdio::from_raw_fd(raw) })
+    Ok(nix::unistd::dup(fd).context("dup pty slave")?.into())
 }
 
 /// Runs one full exec session end to end: reads the init message, spawns

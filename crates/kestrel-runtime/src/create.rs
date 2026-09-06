@@ -28,7 +28,7 @@
 
 use std::ffi::CString;
 use std::io::Read;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -134,7 +134,7 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
     // `child_action`, below — CLOEXEC here is purely belt-and-suspenders
     // fd hygiene for the already-working success path.
     nix::fcntl::fcntl(
-        host_end.as_raw_fd(),
+        host_end.as_fd(),
         nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
     )
     .context("setting FD_CLOEXEC on host_end")?;
@@ -179,7 +179,16 @@ pub fn create(id: &str, bundle: &Bundle, run_dir: &Path, data_dir: &Path) -> Res
         match recv_go_ahead(init_end_raw) {
             Ok(true) => {
                 // dup2 init_end onto the well-known BOOTSTRAP_FD kestrel-init expects.
-                let _ = nix::unistd::dup2(init_end_raw, kestrel_init::bootstrap::BOOTSTRAP_FD);
+                // SAFETY: init_end_raw is open (our socketpair end, borrowed
+                // without closing).
+                let old = unsafe { BorrowedFd::borrow_raw(init_end_raw) };
+                let fd = kestrel_init::bootstrap::BOOTSTRAP_FD;
+                // SAFETY: BOOTSTRAP_FD's ownership claim is released via
+                // forget so the occupant stays open for kestrel-init's
+                // post-execve read — nothing double-closed.
+                let mut new = unsafe { OwnedFd::from_raw_fd(fd) };
+                let _ = nix::unistd::dup2(old, &mut new);
+                std::mem::forget(new);
                 if let Ok(kestrel_init_path) = resolve_kestrel_init_path() {
                     let _ = nix::unistd::execv(
                         &kestrel_init_path,

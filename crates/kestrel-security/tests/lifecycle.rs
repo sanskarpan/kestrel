@@ -18,7 +18,7 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 
 use kestrel_init::exec::exec_into;
@@ -143,7 +143,14 @@ fn test_full_security_pipeline_lifecycle_through_real_exec() {
     // any RAII cleanup" discipline Task 12 established, applied here to
     // the pipe's write end rather than a tempdir.
     kestrel_ns::test_util::run_isolated(move || {
-        nix::unistd::dup2(write_raw, libc::STDOUT_FILENO).expect("dup2 pipe write end onto stdout");
+        // SAFETY: write_raw is the parent's still-open pipe write end
+        // (see above: `write_end` outlives run_isolated), inherited across
+        // fork; borrowing it dups without closing. STDOUT_FILENO is open;
+        // its from_raw_fd claim is released via forget so stdout stays open.
+        let old = unsafe { std::os::fd::BorrowedFd::borrow_raw(write_raw) };
+        let mut new = unsafe { std::os::fd::OwnedFd::from_raw_fd(libc::STDOUT_FILENO) };
+        nix::unistd::dup2(old, &mut new).expect("dup2 pipe write end onto stdout");
+        std::mem::forget(new);
         // Close the child's inherited copy of the read end (never needed
         // here — this process only ever writes) and its now-redundant
         // pre-dup2 write-end fd (STDOUT_FILENO is the copy that matters
