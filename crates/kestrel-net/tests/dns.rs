@@ -20,37 +20,33 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kestrel_net::dns::{serve, NameRecords};
+use kestrel_net::dns::{serve_socket, NameRecords};
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
 const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
 
-/// Grabs an ephemeral port from the OS by binding a throwaway UDP socket
-/// to port 0 and reading back what it was assigned, then releasing it.
-/// There's a theoretical race between releasing this socket and `serve`
-/// binding the same port, but in practice (single test process, no
-/// other UDP traffic on the VM's loopback) this is reliable.
-async fn free_udp_port() -> u16 {
-    let probe = UdpSocket::bind((LOOPBACK, 0))
-        .await
-        .expect("bind probe socket");
-    probe.local_addr().expect("local_addr").port()
-}
-
-/// Starts `serve()` as a background task on loopback + a fresh
-/// unprivileged port, returning the address to query it at. Gives the
-/// server a brief moment to actually bind before returning, so callers
-/// don't race the very first query against it.
+/// Starts `serve_socket()` as a background task on loopback + a fresh
+/// unprivileged port, returning the address to query it at. Binds port 0
+/// HERE and hands the live socket over, so there is no probe-then-bind
+/// window: the old `free_udp_port` + re-bind shape let a parallel test
+/// steal the port between release and `serve()`'s bind (reproduced as
+/// `response timed out` flakes on loaded CI boxes), with `serve()` then
+/// failing silently inside its spawned task.
 async fn spawn_resolver(records: NameRecords, upstream: Option<SocketAddr>) -> SocketAddr {
-    let port = free_udp_port().await;
+    let socket = UdpSocket::bind((LOOPBACK, 0))
+        .await
+        .expect("bind resolver socket");
+    let addr = socket.local_addr().expect("resolver local_addr");
+    let std_socket = socket.into_std().expect("into_std");
+    std_socket
+        .set_nonblocking(true)
+        .expect("set_nonblocking for tokio wrap");
+    let socket = UdpSocket::from_std(std_socket).expect("wrap in tokio UdpSocket");
     tokio::spawn(async move {
-        let _ = serve(LOOPBACK, port, records, upstream).await;
+        let _ = serve_socket(socket, records, upstream).await;
     });
-    // Give the spawned task a chance to run and bind before the caller
-    // starts sending queries at it.
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    (LOOPBACK, port).into()
+    addr
 }
 
 fn records_with(entries: &[(&str, &str)]) -> NameRecords {

@@ -99,6 +99,14 @@ make build-kestrel-init-static
 
 ### Without VM (native Linux host, must be cgroup v2 + root)
 
+One command (builds, starts a scratch daemon, pulls alpine, runs hello):
+
+```bash
+sudo ./scripts/demo-linux.sh
+```
+
+Or step by step:
+
 ```bash
 cargo build --workspace
 cargo test --workspace
