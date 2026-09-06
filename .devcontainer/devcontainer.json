@@ -1,0 +1,18 @@
+{
+  "name": "kestrel",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "bradlc.vscode-tailwindcss"]
+    }
+  },
+  // NOTE: containers/pivot_root/cgroup tests need a privileged host kernel
+  // (cgroup v2, CAP_SYS_ADMIN). This devcontainer is for editing, fmt/clippy,
+  // unit tests, and dashboard dev — run `make test-root` in the Lima VM.
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y libseccomp-dev pkg-config iptables iproute2 && npm --prefix web ci || true"
+}
