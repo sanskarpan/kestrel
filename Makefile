@@ -151,7 +151,7 @@ lint:
 	npm --prefix web run lint
 
 web-dev:
-	cd web && bun run dev
+	cd web && npm run dev
 
 tui:
 	cargo run -p kestrel-tui
