@@ -8,7 +8,7 @@
 //! not before.
 
 use std::io::Write;
-use std::os::fd::FromRawFd;
+use std::os::fd::AsFd;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -173,16 +173,19 @@ fn open_fifo_for_write_bounded(
                 // ordinary blocking-write semantics, not EAGAIN on a full
                 // pipe buffer (irrelevant here in practice, since only a
                 // single byte is ever written, but there is no reason to
-                // hand back a surprising non-blocking fd).
+                // hand back a surprising non-blocking fd). `open` returns
+                // an OwnedFd, so fcntl borrows it and File takes ownership
+                // with no raw-fd handling at all.
                 let flags = OFlag::from_bits_truncate(
-                    fcntl(raw_fd, FcntlArg::F_GETFL).context("fcntl F_GETFL on exec fifo")?,
+                    fcntl(raw_fd.as_fd(), FcntlArg::F_GETFL)
+                        .context("fcntl F_GETFL on exec fifo")?,
                 );
-                fcntl(raw_fd, FcntlArg::F_SETFL(flags & !OFlag::O_NONBLOCK))
-                    .context("fcntl F_SETFL clearing O_NONBLOCK on exec fifo")?;
-                // SAFETY: `raw_fd` was just returned by a successful `open`
-                // above and is not otherwise tracked or closed anywhere
-                // else — `File` takes sole ownership of it here.
-                return Ok(unsafe { std::fs::File::from_raw_fd(raw_fd) });
+                fcntl(
+                    raw_fd.as_fd(),
+                    FcntlArg::F_SETFL(flags & !OFlag::O_NONBLOCK),
+                )
+                .context("fcntl F_SETFL clearing O_NONBLOCK on exec fifo")?;
+                return Ok(std::fs::File::from(raw_fd));
             }
             Err(Errno::ENXIO) => {
                 // No reader (yet). Distinguish "still starting up" from

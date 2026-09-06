@@ -22,7 +22,7 @@ version = "0.1.0"
 license = "MIT"
 
 [workspace.dependencies]
-nix = { version = "0.29", default-features = false }
+nix = { version = "0.30", default-features = false }
 libc = "0.2"
 rustix = "0.38"
 anyhow = "1"

@@ -1,6 +1,6 @@
 // crates/kestrel-init/tests/pdeathsig.rs
 
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -20,6 +20,12 @@ fn read_with_timeout(fd: RawFd, buf_len: usize, timeout: Duration) -> Option<Vec
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut buf = vec![0u8; buf_len];
+        // SAFETY: the caller keeps the pipe read end open across the
+        // bounded `recv_timeout` wait below, so `fd` is valid for every
+        // read this thread can issue; on timeout the test fails fast and
+        // the process exits via run_isolated. Worst case the fd is closed
+        // under us and read returns an error, which is handled as Err.
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
         let result = nix::unistd::read(fd, &mut buf).map(|n| buf[..n].to_vec());
         // Best-effort: if the receiver already timed out and dropped, this
         // send fails silently — nothing further to clean up, and the whole
