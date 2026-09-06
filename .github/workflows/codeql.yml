@@ -8,10 +8,12 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - ".github/workflows/codeql.yml"
   pull_request:
     branches: [main]
     paths:
       - "web/**"
+      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "17 5 * * 1"
   workflow_dispatch:
