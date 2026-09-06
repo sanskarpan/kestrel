@@ -1,0 +1,30 @@
+name: Supply chain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/supply-chain.yml"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+  schedule:
+    - cron: "0 6 * * 1" # weekly advisories re-check
+  workflow_dispatch:
+
+jobs:
+  cargo-deny:
+    name: cargo deny (advisories, bans, licenses, sources)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps (same as CI)
+        run: sudo apt-get update && sudo apt-get install -y libseccomp-dev pkg-config
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --all-features check

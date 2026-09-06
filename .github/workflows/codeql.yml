@@ -1,0 +1,33 @@
+name: CodeQL
+
+# NOTE: CodeQL has no Rust support, so this covers the web/ TypeScript
+# only. Rust supply chain is covered by cargo-deny (supply-chain.yml).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "web/**"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze JavaScript/TypeScript
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+        category: "/language:javascript-typescript"
