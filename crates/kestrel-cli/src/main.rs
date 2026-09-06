@@ -591,13 +591,18 @@ async fn do_ps(host: &str, args: &PsArgs) -> Result<()> {
             .get("pid")
             .map(|x| x.to_string())
             .unwrap_or_else(|| "-".to_string());
-        let image = c
-            .get("image")
-            .or_else(|| c.get("bundle"))
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| "-".to_string());
-        // truncate image display
-        let image_disp = image.trim_matches('"');
+        // Prefer a real image name; the daemon only reports the bundle
+        // path (`/var/lib/kestrel/bundles/<id>`), whose basename is the
+        // container id — show that instead of a truncated host path.
+        let image_disp = match (c.get("image"), c.get("bundle")) {
+            (Some(v), _) => v.to_string(),
+            (None, Some(v)) => v
+                .as_str()
+                .map(|s| s.rsplit('/').next().unwrap_or(s).to_string())
+                .unwrap_or_else(|| v.to_string()),
+            (None, None) => "-".to_string(),
+        };
+        let image_disp = image_disp.trim_matches('"');
         println!(
             "{:<16} {:<10} {:<8} {:<20} ",
             short,

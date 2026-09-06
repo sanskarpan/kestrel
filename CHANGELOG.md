@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] — TBD
+## [0.1.0] — 2026-09-06
 
 First tagged release. All 328 `CHECKLIST.md` tasks across Phases 0–14 complete
-and verified in the Lima VM:
+and verified in the Lima VM. Prebuilt Linux aarch64 binaries are attached to
+the GitHub release (x86_64 follows; `cargo build --release` works anywhere):
 
 - OCI spec types, validation, default spec generator (`kestrel-oci`)
 - 8 Linux namespaces with three-stage fork/unshare dance (`kestrel-ns`)

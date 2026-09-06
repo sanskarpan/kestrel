@@ -329,6 +329,11 @@ async fn spawn_shim_and_create(
 /// own (much less specific) failure, which `AppError::from(anyhow::Error)`
 /// would otherwise turn into a generic `500`.
 ///
+/// Accepts Docker-style unique prefixes (`ps` prints 12-char ids, so
+/// clients naturally send them back) via `registry::resolve_registry_id` —
+/// one choke point used by all 20+ read/lifecycle/WS handlers, so the fix
+/// applies to inspect/start/stop/exec/attach/introspection alike.
+///
 /// `pub(crate)` (Task 12): `api::attach`'s WS/resize handlers need the
 /// exact same "unknown id -> 404, not a generic 500" lookup this module
 /// already established — reusing it rather than re-deriving a second copy
@@ -337,13 +342,8 @@ pub(crate) async fn get_registered(
     state: &AppState,
     id: &str,
 ) -> Result<ContainerHandle, AppError> {
-    state
-        .registry
-        .read()
-        .await
-        .get(id)
-        .cloned()
-        .ok_or_else(|| AppError::not_found(format!("container {id} not found")))
+    let registry = state.registry.read().await;
+    crate::registry::resolve_registry_id(&registry, id).map_err(AppError::not_found)
 }
 
 /// Polls `state.json` (via `registry::read_state`, matching every other
@@ -378,7 +378,7 @@ pub async fn start_container(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<StatusCode, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["start", &id]).await?;
     // Task 14: `container.start` — published directly here (Step 3), NOT
     // derived from Task 13's `Created`->`Running` status-transition signal
@@ -398,7 +398,7 @@ pub async fn kill_container(
     PathParam(id): PathParam<String>,
     Query(query): Query<KillQuery>,
 ) -> Result<StatusCode, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     let signal = query.signal.ok_or_else(|| {
         AppError::bad_request(
             "missing required ?signal=<name-or-number> query parameter, e.g. ?signal=SIGTERM",
@@ -413,7 +413,7 @@ pub async fn pause_container(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<StatusCode, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     runtime_cli::run_kestrel_runtime(&state.run_dir, &state.data_dir, &["pause", &id]).await?;
     // Task 14: `container.pause` — published directly here, same
     // no-double-publish reasoning as `start_container` above.
@@ -425,7 +425,7 @@ pub async fn unpause_container(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<StatusCode, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     // The CLI subcommand is `resume` (`kestrel-runtime`'s real `Cli`,
     // `crates/kestrel-runtime/src/cli.rs`'s `Command::Resume`) — the HTTP
     // verb is `unpause` (matching the design doc §4 table's own naming and
@@ -456,7 +456,7 @@ pub async fn stop_container(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<StatusCode, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     let current = registry::read_state(&state.run_dir, &id)
         .await
@@ -521,6 +521,7 @@ pub async fn delete_container(
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, AppError> {
     let handle = get_registered(&state, &id).await?;
+    let id = handle.id.clone();
 
     // Real cross-task race fix (found by Phase 9 Task 22's capstone suite,
     // `crates/kestreld/tests/capstone.rs::test_events_and_metrics_flow_end_
@@ -685,6 +686,7 @@ pub async fn inspect_container(
     PathParam(id): PathParam<String>,
 ) -> Result<Json<ContainerView>, AppError> {
     let handle = get_registered(&state, &id).await?;
+    let id = handle.id.clone();
     let s = registry::read_state(&state.run_dir, &id)
         .await
         .with_context(|| format!("reading state.json for {id}"))?;
@@ -766,7 +768,7 @@ pub async fn exec_container(
     PathParam(id): PathParam<String>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     Ok(ws.on_upgrade(move |socket| async move {
         if let Err(e) = run_exec_session(socket, &state, &id).await {
             tracing::warn!(id, error = %e, "exec session ended with an error");
@@ -1112,7 +1114,7 @@ pub async fn top_container(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<TopResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
     let s = registry::read_state(&state.run_dir, &id)
         .await
         .with_context(|| format!("reading state.json for {id}"))?;

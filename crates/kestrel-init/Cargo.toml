@@ -2,6 +2,7 @@
 name = "kestrel-init"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "kestrel-init"

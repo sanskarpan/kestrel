@@ -1,0 +1,57 @@
+# cargo-deny configuration: advisories + license gate.
+# Run locally (Linux): `cargo deny check`. CI runs the same on every PR.
+
+[graph]
+all-features = false
+no-default-features = false
+targets = [
+  { triple = "aarch64-unknown-linux-gnu" },
+  { triple = "x86_64-unknown-linux-gnu" },
+]
+
+[advisories]
+db-path = "~/.cargo/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+unmaintained = "all"
+unsound = "all"
+
+# RUSTSEC-2024-0436: `paste` is unmaintained (NOT a vulnerability).
+# Transitive via rtnetlink (netlink-packet-core) and ratatui; the advisory
+# itself states no safe upgrade exists (suggested forks are not adopted
+# upstream). Re-review if rtnetlink/ratatui drop the dependency.
+[[advisories.ignore]]
+id = "RUSTSEC-2024-0436"
+reason = "unmaintained-transitive-no-upgrade: paste via rtnetlink + ratatui; advisory lists no safe upgrade"
+
+# RUSTSEC-2026-0002 / RUSTSEC-2026-0253: lru 0.12.5 soundness issues
+# (Stacked Borrows, pop() panic-safety). Transitive via ratatui 0.29,
+# which pins lru ^0.12 with no patched 0.12 release available; our use is
+# a local TUI cache (no untrusted input reaches it). Re-review on a
+# ratatui upgrade that moves off lru 0.12.
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0002"
+reason = "unsound-transitive-pinned: lru 0.12 via ratatui 0.29, no patched 0.12; local TUI cache only"
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0253"
+reason = "unsound-transitive-pinned: lru 0.12 via ratatui 0.29, no patched 0.12; local TUI cache only"
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Zlib",
+  "MPL-2.0",
+  # CDLA-Permissive-2.0 covers only the Mozilla CA-bundle DATA inside
+  # webpki-roots (transitive via reqwest/hyper-rustls for the registry
+  # client and daemon TLS). Permissive, no copyleft obligations.
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+exceptions = []

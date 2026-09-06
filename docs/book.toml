@@ -1,0 +1,15 @@
+[book]
+title = "Kestrel — Container Runtime from Scratch"
+description = "From-scratch OCI container runtime in Rust: namespaces, cgroups v2, OverlayFS, seccomp, image store, daemon, CLI, TUI, dashboard."
+authors = ["Sanskar Pandey"]
+language = "en"
+src = "."
+
+[build]
+create-missing = false
+extra-watch-dirs = ["assets"]
+
+[output.html]
+git-repository-url = "https://github.com/sanskarpan/kestrel"
+edit-url-template = "https://github.com/sanskarpan/kestrel/edit/main/docs/{path}"
+site-url = "/kestrel/"
