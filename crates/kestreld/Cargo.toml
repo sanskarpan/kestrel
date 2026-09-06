@@ -119,7 +119,7 @@ tower = { version = "0.5", features = ["util"] }
 # Version pinned to match what's already resolved in this workspace's own
 # `Cargo.lock` (axum's own `ws` feature already depends on
 # `tokio-tungstenite` 0.29 internally) — not a new, second copy.
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 # TEST-ONLY (Task 11): reads the `follow=true` SSE response body as a
 # stream of frames (`BodyExt::frame`) with a bounded per-frame timeout, so
 # a test can prove new lines are delivered live rather than only checking
