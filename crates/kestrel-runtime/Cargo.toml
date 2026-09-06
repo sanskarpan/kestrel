@@ -2,6 +2,7 @@
 name = "kestrel-runtime"
 edition.workspace = true
 version.workspace = true
+license.workspace = true
 
 # `src/main.rs` remains the default (autodiscovered) `kestrel-runtime`
 # binary; this is an ADDITIONAL bin target, matching kestrel-init's own
