@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-09-06
+
+Dependency refresh, no behavior changes except where noted:
+
+- `nix` 0.29 → 0.30 with `AsFd`/`OwnedFd` migration across
+  `kestrel-runtime`, `kestrel-shim`, `kestrel-init`, `kestrel-security`
+  tests, and `kestreld` (two `from_raw_fd` dances removed entirely)
+- `thiserror` 1 → 2, `toml` 0.8 → 1.1, `tokio-tungstenite` 0.29 → 0.30,
+  `flate2` patch, `@types/node` 24 → 26, `typescript` 6 → 7,
+  `@tanstack/react-table` 8 → 9, GitHub Actions checkout/setup-node v7
+- DNS test port-allocation race fixed (`serve_socket` split)
+- Fixes RUSTSEC-2026-0258 (`h2` update); documents `paste`/`lru`/
+  `webpki-roots` decisions in `deny.toml`
+
 ## [0.1.0] — 2026-09-06
 
 First tagged release. All 328 `CHECKLIST.md` tasks across Phases 0–14 complete
