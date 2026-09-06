@@ -94,7 +94,7 @@ pub async fn get_namespaces(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<NamespacesResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     // Snapshot every OTHER registered container's id up front — the
     // cross-referencing walk below is plain blocking filesystem I/O run on
@@ -235,7 +235,7 @@ pub async fn get_cgroup(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<CgroupResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     // Same `<data_dir>/cgroups` root every other cgroup-touching path in
     // this crate uses (`metrics.rs`, `leak_sweep.rs`, `main.rs`'s startup
@@ -347,7 +347,7 @@ pub async fn get_pressure(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<PressureResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     let cgroups_root = state.data_dir.join("cgroups");
     let id_for_read = id.clone();
@@ -419,7 +419,7 @@ pub async fn get_mounts(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<MountsResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     let run_dir = state.run_dir.clone();
     let id_for_join = id.clone();
@@ -645,7 +645,7 @@ pub async fn get_layers(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<LayersResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     let data_dir = state.data_dir.clone();
     let id_for_read = id.clone();
@@ -746,7 +746,7 @@ pub async fn get_copyups(
     State(state): State<Arc<AppState>>,
     PathParam(id): PathParam<String>,
 ) -> Result<Json<CopyUpsResponse>, AppError> {
-    get_registered(&state, &id).await?;
+    let id = get_registered(&state, &id).await?.id;
 
     let data_dir = state.data_dir.clone();
     let id_for_read = id.clone();
@@ -953,6 +953,7 @@ pub async fn get_seccomp(
     PathParam(id): PathParam<String>,
 ) -> Result<Json<SeccompResponse>, AppError> {
     let handle = get_registered(&state, &id).await?;
+    let id = handle.id.clone();
 
     let config_path = handle.bundle_path.join("config.json");
     let profile = tokio::task::spawn_blocking(move || read_seccomp_profile(&config_path))

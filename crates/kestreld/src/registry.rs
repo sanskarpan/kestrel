@@ -25,7 +25,7 @@ use tokio::sync::RwLock;
 /// later task's network-attachment path read/write — one mechanism, not
 /// two — so this reader/writer never needs to change shape again, only
 /// grow.
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ContainerMeta {
     pub tty: bool,
     /// The raw `network_mode` string the client gave `POST /containers`
@@ -60,7 +60,7 @@ pub struct ContainerMeta {
 // create_container` constructs a `ContainerHandle` from it and inserts
 // into the registry on a successful create. `recover_registry` (Task 7)
 // does the same on startup recovery.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ContainerHandle {
     pub id: String,
     pub bundle_path: PathBuf,
@@ -68,6 +68,29 @@ pub struct ContainerHandle {
 }
 
 pub type Registry = Arc<RwLock<HashMap<String, ContainerHandle>>>;
+
+/// Resolves a user-supplied container id against registry keys: an exact
+/// match wins; otherwise a UNIQUE prefix resolves (Docker-style — `ps`
+/// prints 12-char prefixes, so clients naturally send them back); zero
+/// matches or ambiguous prefixes are errors with distinct messages.
+///
+/// Pure over `&HashMap` (no `AppState`) so it unit-tests without a daemon.
+pub fn resolve_registry_id(
+    registry: &HashMap<String, ContainerHandle>,
+    id: &str,
+) -> Result<ContainerHandle, String> {
+    if let Some(handle) = registry.get(id) {
+        return Ok(handle.clone());
+    }
+    let mut matches = registry.keys().filter(|k| k.starts_with(id));
+    match matches.next() {
+        None => Err(format!("container {id} not found")),
+        Some(only) if matches.next().is_none() => Ok(registry[only].clone()),
+        Some(_) => Err(format!(
+            "container id prefix {id:?} is ambiguous; use the full id"
+        )),
+    }
+}
 
 pub fn meta_path(data_dir: &std::path::Path, id: &str) -> PathBuf {
     data_dir.join("containers").join(id).join("meta.json")
@@ -189,4 +212,61 @@ pub async fn write_meta(
 pub async fn read_state(run_dir: &std::path::Path, id: &str) -> anyhow::Result<State> {
     let path = run_dir.join(id).join("state.json");
     tokio::task::spawn_blocking(move || State::read(&path)).await?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn handle(id: &str) -> ContainerHandle {
+        ContainerHandle {
+            id: id.to_string(),
+            bundle_path: PathBuf::from("/var/lib/kestrel/bundles").join(id),
+            meta: ContainerMeta::default(),
+        }
+    }
+
+    fn two_container_registry() -> HashMap<String, ContainerHandle> {
+        let (a, b) = (
+            "1c520c1e-e95a-4fff-9aa8-0901880a0554",
+            "ff6e9f7f-f121-4558-92c0-fc0efa38e06d",
+        );
+        HashMap::from([(a.to_string(), handle(a)), (b.to_string(), handle(b))])
+    }
+
+    #[test]
+    fn resolve_exact_id_wins() {
+        let reg = two_container_registry();
+        let full = "1c520c1e-e95a-4fff-9aa8-0901880a0554";
+        assert_eq!(resolve_registry_id(&reg, full).unwrap().id, full);
+    }
+
+    #[test]
+    fn resolve_unique_prefix_resolves() {
+        let reg = two_container_registry();
+        // 12-char prefix as printed by `ps`
+        assert_eq!(
+            resolve_registry_id(&reg, "1c520c1e-e95a").unwrap().id,
+            "1c520c1e-e95a-4fff-9aa8-0901880a0554"
+        );
+    }
+
+    #[test]
+    fn resolve_unknown_id_errors_not_found() {
+        let reg = two_container_registry();
+        let err = resolve_registry_id(&reg, "deadbeef").unwrap_err();
+        assert!(err.contains("not found"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn resolve_ambiguous_prefix_errors() {
+        let mut reg = two_container_registry();
+        // Add a second container sharing the 12-char prefix.
+        let clash = "1c520c1e-e95a-0000-0000-000000000000";
+        reg.insert(clash.to_string(), handle(clash));
+        let err = resolve_registry_id(&reg, "1c520c1e-e95a").unwrap_err();
+        assert!(err.contains("ambiguous"), "unexpected error: {err}");
+        // Full ids still resolve despite the shared prefix.
+        assert_eq!(resolve_registry_id(&reg, clash).unwrap().id, clash);
+    }
 }

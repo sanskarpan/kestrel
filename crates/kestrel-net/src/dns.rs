@@ -40,7 +40,19 @@ pub async fn serve(
     upstream: Option<SocketAddr>,
 ) -> Result<()> {
     let socket = UdpSocket::bind((bind_ip, bind_port)).await?;
-    let mut buf = [0u8; 512]; // DNS-over-UDP's classic (pre-EDNS0) size cap
+    serve_socket(socket, records, upstream).await
+}
+
+/// Serves DNS on an already-bound socket. Split out of [`serve`] so tests
+/// can bind port 0 themselves (atomically holding the port, with no
+/// probe-then-bind window for a parallel test to steal it) and hand the
+/// live socket over — see `tests/dns.rs::spawn_resolver`.
+pub async fn serve_socket(
+    socket: UdpSocket,
+    records: NameRecords,
+    upstream: Option<SocketAddr>,
+) -> Result<()> {
+    let mut buf = [0u8; 512]; // DNS-over-UDP's classic (pre-EDNS) size cap
 
     loop {
         let (len, from) = socket.recv_from(&mut buf).await?;

@@ -123,6 +123,7 @@ pub async fn attach_container(
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
     let handle = get_registered(&state, &id).await?;
+    let id = handle.id.clone();
     let attach_sock_path = attach_sock_path(&state.run_dir, &id);
     let tty = handle.meta.tty;
     let event_bus = state.event_bus.clone();
@@ -350,6 +351,7 @@ pub async fn resize_container(
     Json(req): Json<ResizeRequest>,
 ) -> Result<StatusCode, AppError> {
     let handle = get_registered(&state, &id).await?;
+    let id = handle.id.clone();
     if !handle.meta.tty {
         return Err(AppError::conflict(format!(
             "container {id} is not a tty container; there is no PTY to resize"
