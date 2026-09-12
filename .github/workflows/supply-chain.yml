@@ -22,7 +22,7 @@ jobs:
     name: cargo deny (advisories, bans, licenses, sources)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System deps (same as CI)
         run: sudo apt-get update && sudo apt-get install -y libseccomp-dev pkg-config
       - uses: EmbarkStudios/cargo-deny-action@v2
