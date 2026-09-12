@@ -608,7 +608,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1180,7 +1180,7 @@ dependencies = [
  "kestrel-ns",
  "kestrel-oci",
  "libc",
- "nix",
+ "nix 0.31.3",
  "thiserror 2.0.19",
  "tracing",
 ]
@@ -1215,7 +1215,7 @@ dependencies = [
  "kestrel-oci",
  "kestrel-rootfs",
  "libc",
- "nix",
+ "nix 0.31.3",
  "reqwest",
  "serde",
  "serde_json",
@@ -1241,7 +1241,7 @@ dependencies = [
  "kestrel-rootfs",
  "kestrel-security",
  "libc",
- "nix",
+ "nix 0.31.3",
  "serde_json",
  "tempfile",
 ]
@@ -1255,7 +1255,7 @@ dependencies = [
  "ipnetwork",
  "kestrel-ns",
  "libc",
- "nix",
+ "nix 0.31.3",
  "rtnetlink",
  "serde",
  "serde_json",
@@ -1272,7 +1272,7 @@ dependencies = [
  "anyhow",
  "kestrel-cgroup",
  "libc",
- "nix",
+ "nix 0.31.3",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -1284,7 +1284,7 @@ name = "kestrel-oci"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "nix",
+ "nix 0.31.3",
  "oci-spec",
  "serde",
  "serde_json",
@@ -1299,7 +1299,7 @@ dependencies = [
  "kestrel-image",
  "kestrel-ns",
  "libc",
- "nix",
+ "nix 0.31.3",
  "sha2",
  "tempfile",
  "thiserror 2.0.19",
@@ -1323,7 +1323,7 @@ dependencies = [
  "kestrel-rootfs",
  "kestrel-security",
  "libc",
- "nix",
+ "nix 0.31.3",
  "serde",
  "serde_json",
  "tempfile",
@@ -1344,7 +1344,7 @@ dependencies = [
  "kestrel-oci",
  "libc",
  "libseccomp",
- "nix",
+ "nix 0.31.3",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -1359,7 +1359,7 @@ dependencies = [
  "clap",
  "kestrel-security",
  "libc",
- "nix",
+ "nix 0.31.3",
  "serde",
  "serde_json",
  "tempfile",
@@ -1403,7 +1403,7 @@ dependencies = [
  "kestrel-runtime",
  "kestrel-shim",
  "libc",
- "nix",
+ "nix 0.31.3",
  "reqwest",
  "rtnetlink",
  "serde",
@@ -1629,6 +1629,18 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.13.1",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
  "memoffset",
 ]
 
@@ -1817,7 +1829,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2023,7 +2035,7 @@ dependencies = [
  "netlink-packet-route",
  "netlink-proto",
  "netlink-sys",
- "nix",
+ "nix 0.30.1",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -2057,7 +2069,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2422,7 +2434,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
