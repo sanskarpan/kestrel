@@ -9,7 +9,7 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.28"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "io-util", "sync", "net"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
