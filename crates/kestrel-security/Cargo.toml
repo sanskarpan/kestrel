@@ -22,7 +22,7 @@ tracing.workspace = true
 nix = { workspace = true, features = ["process", "resource", "user"] }
 libc.workspace = true
 caps = "0.5"
-libseccomp = "0.3"
+libseccomp = "0.4"
 serde.workspace = true
 serde_json.workspace = true
 kestrel-oci = { path = "../kestrel-oci" }
